@@ -851,11 +851,11 @@ void FRI:: check_add_friends_request(TCP &client,LOGIN &login){
         int command = -1;
         cout<<"请选择操作"<<endl<<"1.同意某好友申请"<<endl<<"2.拒绝某好友申请"<<endl<<"-1.退出"<<endl;
         cin>>command;
-        cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-        cin.clear();
+        // cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        // cin.clear();
          while(1)
         {
-            if(command != 1 ||command != 2 ||command != -1)
+            if(command != 1 &&command != 2 &&command != -1)
             {
         cin>>command;
 
@@ -1176,7 +1176,6 @@ void GRO::open_group_owner(TCP &client,LOGIN &login,int &m,string group_id)
     int command = 0; 
     string b;
     main_page_owner(login.getuser_id(),login.getusername());
-   
     cin>>command;
     cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     cin.clear();
@@ -1199,7 +1198,15 @@ void GRO::open_group_owner(TCP &client,LOGIN &login,int &m,string group_id)
         break;
         case 4:
         cout<<"当前操作：退出群聊"<<endl;
-        quit_group(client,login,group_id);
+        quit_group(client,login,group_id,m);
+        if(m == 1)
+        {
+        string from_id = login.getuser_id();
+       string type = "nothing";
+        string to_id = "0";
+        string message = "0"; 
+        client.send_m(type,from_id,to_id,message);
+        }
         break;
         case 5:
         cout<<"当前操作：查看群成员"<<endl;
@@ -1361,7 +1368,7 @@ void GRO::open_group_admin(TCP &client,LOGIN &login,int &m,string group_id)
         break;
         case 4:
         cout<<"当前操作：退出群聊"<<endl;
-        quit_group(client,login,group_id);
+        quit_group(client,login,group_id,m);
         break;
         case 5:
         cout<<"当前操作：查看群成员"<<endl;
@@ -1382,6 +1389,10 @@ void GRO::open_group_admin(TCP &client,LOGIN &login,int &m,string group_id)
         return;
     
         break;
+        if(m == 1)
+        {
+            break;
+        }
     }   
    
 }
@@ -1414,7 +1425,7 @@ void GRO::open_group_member(TCP &client,LOGIN &login,int &m,string group_id)
         break;
         case 4:
         cout<<"当前操作：退出群聊"<<endl;
-        quit_group(client,login,group_id);
+        quit_group(client,login,group_id,m);
         break;
         case 5:
         cout<<"当前操作：查看群成员"<<endl;
@@ -1495,7 +1506,7 @@ void GRO::add_admin(TCP &client,LOGIN &login,string group_id)
         cout  << buffer << endl;
     }
 }
-void GRO::quit_group(TCP &client,LOGIN &login,string group_id)
+void GRO::quit_group(TCP &client,LOGIN &login,string group_id,int &m)
 {
     string type = "quit_group";
     string message = group_id;
@@ -1525,6 +1536,7 @@ void GRO::quit_group(TCP &client,LOGIN &login,string group_id)
     } else {
         buffer[bytes] = '\0';
         cout  << buffer << endl;
+        m =1 ;
     }
 }
 void GRO::delete_admin(TCP &client,LOGIN &login,string group_id)
