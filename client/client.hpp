@@ -11,16 +11,21 @@
 #include <fstream> 
 #include <sys/stat.h> 
 #include <sys/types.h>
+#include <mutex>
+#include <condition_variable>
 
 
-#define SERVER_IP "127.0.0.1"
+//#define SERVER_IP "127.0.0.1"
 #define PORT 8080
 #define BUFFER_SIZE 1024
 using namespace std;
 using json = nlohmann::json;
 std::atomic<bool> chat_active{true};//控制好友聊天
 std::atomic<bool> group_active{true};  //控制群聊天
-std::atomic<bool> heartbeat_running{true};
+std::atomic<bool> heartbeat_received(true);
+std::condition_variable cv;
+bool is_paused = false;
+std::mutex mtx;   
 struct FriendRequest {
     string from_id;
     string message;
@@ -30,22 +35,23 @@ class TCP{
     private:
     int client_socket;
     char buffer[BUFFER_SIZE];
-    
+    int heart_socket;
     public:
     int transfer_socket;
     int data_socket;
-    int heart_socket;
-    TCP();//建立客户端套接字
+    
+     
+    TCP(const char* SERVER_IP);//建立客户端套接字
    
     int getClientSocket() {
     return client_socket;
     }
+
     void send_m(string type,string from_sb,string to_sb,string message);//发送消息的函数
     bool rec_m(string &type,string &message);
     void new_socket();
     void connect_transfer_socket();
-    void start_heartbeat();
-    bool connect_heartbeat_socket();
+    void heartbeat();
 
    ~TCP()
    {
@@ -53,6 +59,18 @@ class TCP{
     close(data_socket);
    }
    void recv_server(int data_socket);
+   void pause_heartbeat()
+{
+    std::lock_guard<std::mutex> lock(mtx);  // 确保线程安全
+    is_paused = true;  // 设置线程暂停标志
+}
+    void resume_heartbeat()
+{
+    std::lock_guard<std::mutex> lock(mtx);  // 确保线程安全
+    is_paused = false;  // 设置线程恢复标志
+    cv.notify_one();  // 通知心跳线程继续
+}
+   
 };
 class LOGIN{
     private:
