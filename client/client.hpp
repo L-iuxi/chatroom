@@ -17,9 +17,10 @@
 #define PORT 8080
 #define BUFFER_SIZE 1024
 using namespace std;
-std::atomic<bool> ready(true); 
-std::atomic<bool> chat_active{true};
-std::atomic<bool> group_active{true};  
+using json = nlohmann::json;
+std::atomic<bool> chat_active{true};//控制好友聊天
+std::atomic<bool> group_active{true};  //控制群聊天
+std::atomic<bool> heartbeat_running{true};
 struct FriendRequest {
     string from_id;
     string message;
@@ -33,15 +34,19 @@ class TCP{
     public:
     int transfer_socket;
     int data_socket;
+    int heart_socket;
     TCP();//建立客户端套接字
    
     int getClientSocket() {
     return client_socket;
     }
     void send_m(string type,string from_sb,string to_sb,string message);//发送消息的函数
-    void rec_m(string &type,string &from_sb,string &to_sb,string &message);
+    bool rec_m(string &type,string &message);
     void new_socket();
     void connect_transfer_socket();
+    void start_heartbeat();
+    bool connect_heartbeat_socket();
+
    ~TCP()
    {
     close(client_socket);
@@ -85,7 +90,7 @@ class GRO{
     void see_all_group(TCP &client, LOGIN &login);
     void see_all_members(TCP &client,LOGIN &login,string group_id);
     void add_admin(TCP &client,LOGIN &login,string group_id);
-    void quit_group(TCP &client,LOGIN &login,string group_id);
+    void quit_group(TCP &client,LOGIN &login,string group_id,int &m);
     void manage_group(TCP &client,LOGIN &login,string group_id);
     void delete_admin(TCP &client,LOGIN &login,string group_id);
     void manage_admin(TCP &client,LOGIN &login,string group_id);
