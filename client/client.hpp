@@ -43,9 +43,9 @@ class TCP{
     public:
     int transfer_socket;
     int data_socket;
-    
+    const char* SERVER_IP;
      
-    TCP(const char* SERVER_IP);//建立客户端套接字
+    TCP(const char* IP);//建立客户端套接字
    
     int getClientSocket() {
     return client_socket;

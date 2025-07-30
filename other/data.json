@@ -1,0 +1,61 @@
+
+{
+    "id": "619065",
+    "name": "幸福的烩面",
+    "password": "Lyx188288"
+}
+{
+    "id": "247322",
+    "name": "MayBy",
+    "password": "guofusunce"
+}
+{
+    "id": "727418",
+    "name": "kxhjf",
+    "password": "1010110tptpttp"
+}
+{
+    "id": "652453",
+    "name": "zjeshidmn",
+    "password": "********"
+}
+{
+    "id": "639828",
+    "name": "zqrlucky..",
+    "password": "juanmaoa"
+}
+{
+    "id": "444678",
+    "name": "zmz#04",
+    "password": "******"
+}
+{
+    "id": "971609",
+    "name": "zztbbnb",
+    "password": "ttttttt66666666"
+}
+//LRANGE file:from_id:to_id 0 -1
+//查询from_id给to_id发的所有文件
+//SMEMBERS file:unread:group_id:from_id
+//查询from——id在群group——id里面的所有未读文件
+//LRANGE file:group_id 0 -1
+//查询群group_id下的所有文件
+//LRANGE request:userid 0 -1
+//查询userid的所有好友申请
+//LRANGE group:apply:groupid 0 -1
+//查询群groupid的全部群申请
+// ZRANGE chat:groupid 0 9 WITHSCORES
+//查看群groupid的群聊天记录
+//LRANGE messages:usera:userb 0 -1
+//查看用户a发给用户b的所有消息
+
+{
+    "id": "850585",
+    "name": "666",
+    "password": "123456"
+}
+{
+    "id": "727537",
+    "name": "test",
+    "password": "test"
+}

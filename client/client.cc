@@ -16,8 +16,8 @@ string extractUsername(const string& message) {
     return "";
 }
 //创建客户端套接字
-TCP::TCP(const char* SERVER_IP){
-        
+TCP::TCP(const char* IP){
+        SERVER_IP= IP;
     struct sockaddr_in server_address;
     if ((client_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("Socket creation failed");
@@ -188,7 +188,7 @@ void TCP::connect_transfer_socket() {
     sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(transfer_port);
-    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1"); // 根据实际情况修改
+    server_addr.sin_addr.s_addr = inet_addr(SERVER_IP); // 根据实际情况修改
 
     if(connect(transfer_socket, (sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
         cerr << "连接传输套接字失败" << endl;
