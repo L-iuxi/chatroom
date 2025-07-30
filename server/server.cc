@@ -2018,6 +2018,7 @@ void TCP::start(DATA &redis_data) {
         else if (bytes == 0) {
                     // 客户端断开连接
                     std::cout << "客户端已断开连接\n";
+                
                     close(client_socket);  // 关闭当前客户端套接字
                     // 不需要 break，这样可以继续处理其他连接
                 } 
@@ -2182,7 +2183,8 @@ void TCP:: handleTimeout(const string& client_id) {
     void TCP::updateLastOnlineTime(const string& client_id) {
     auto now = chrono::system_clock::now();
     client_last_online_time[client_id] = now;
-
+     int id = std::stoi(client_id);
+    remove_user(id);
     cout << "客户端 " << client_id << " 最后在线时间已更新为：" 
          << chrono::duration_cast<chrono::seconds>(now.time_since_epoch()).count() << " 秒。" << endl;
 }
@@ -2509,7 +2511,7 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         {
             cout<<"收到命令：私聊好友"<<endl;
             friends.is_friends(*this,data_socket,from_id,to_id,message,redis_data);
-            recived_message(redis_data,find_user_id(data_socket),data_socket);
+            //recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "generate_group")
         {
             cout<<"收到命令：创建群聊"<<endl;
@@ -2994,7 +2996,12 @@ void FRI::open_block(TCP &client,int data_socket,string from_id,string to_id,DAT
     redis_data.see_all_other_message(to_id, from_id, message1);
     redis_data.see_all_my_message(from_id, to_id, message2);
    
-
+    if(message1.size() == 0 && message2.size() == 0)
+    {
+        recover = "暂无聊天记录";
+        client.send_m(data_socket,"other",recover);
+        return;
+    }
     messages.insert(messages.end(), message1.begin(), message1.end());
     messages.insert(messages.end(), message2.begin(), message2.end());
 
@@ -3030,6 +3037,7 @@ void FRI::open_block(TCP &client,int data_socket,string from_id,string to_id,DAT
     }
     
     client.send_m(data_socket,"other",recover);
+    //cout<<"发送成功"<<endl;
    
 }
 //选择添加好友操作

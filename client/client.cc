@@ -95,7 +95,7 @@ bool TCP::rec_m(string &type, string &message) {
         }
       
     }
-  // cout<<"接收到数据"<<buf.data()<<endl;
+  //cout<<"接收到数据"<<buf.data()<<endl;
     
     try {
         auto parsed = json::parse(string(buf.begin(), buf.end()));
@@ -136,7 +136,7 @@ void TCP::new_socket(){
         cerr<<"建立数据套接字时接收数据失败"<<endl;
         return;
     }
-    cout<<"接收到服务器发来的端口"<<data_port<<endl;
+  //  cout<<"接收到服务器发来的端口"<<data_port<<endl;
 
     this->data_socket = socket(AF_INET,SOCK_STREAM,0);
     if(this->data_socket == -1)
@@ -430,13 +430,14 @@ void FRI:: choose_command(TCP &client, LOGIN &login)
     {
     int a;
     print_block();
+    //cin.ignore();
     cin>>a;
     switch(a)
     {
         case 1:
         cout<<"当前操作：发送消息"<<endl;
         open_block(client,login,to_id);
-        client.recv_server(client.data_socket);
+        //client.recv_server(client.data_socket);
         break;
         case 2:
         cout<<"当前操作：发送文件"<<endl;
@@ -725,7 +726,7 @@ void FRI:: send_message_no(TCP &client,string from_id,string to_id)
     }
     client.send_m(type,from_id,to_id,message);
     }
-    cout<<"我结束了"<<endl;
+    //cout<<"我结束了"<<endl;
 }
 void FRI ::receive_log(TCP& client,string from_id,string to_id)
 {
@@ -754,12 +755,12 @@ void FRI ::receive_log(TCP& client,string from_id,string to_id)
         }
         
  }
-cout<<"我也结束了"<<endl;
+//cout<<"我也结束了"<<endl;
 }
 void FRI:: open_block(TCP &client,LOGIN &login,string to_id)
 {
     //暂停心跳监测
-    
+    // client.pause_heartbeat();
     string from_id,type,message;
     // cout<<"请选择好友"<<endl;
     // cin>>to_id;
@@ -784,21 +785,21 @@ void FRI:: open_block(TCP &client,LOGIN &login,string to_id)
         cout<<"-------------------------"<<endl;
        cout << buffer << endl;
         cout<<"-----以上为历史聊天记录-----"<<endl;
-         cout << "正在加载聊天界面，请稍候..." << endl;
+         //cout << "正在加载聊天界面，请稍候..." << endl;
     
     // 等待3秒让用户有时间查看历史记录
     this_thread::sleep_for(chrono::seconds(3));
 
         //cout<<"data is"<<data<<endl;
     // }
-    client.pause_heartbeat();
+    
      chat_active = true; 
     thread receive_thread(std::bind(&FRI::receive_log, this, std::ref(client), from_id, to_id)); 
     thread send_thread(std::bind(&FRI::send_message_no, this, std::ref(client), from_id, to_id)); 
 
     receive_thread.join();
     send_thread.join();
-   client.resume_heartbeat();//恢复心跳监测
+//    client.resume_heartbeat();//恢复心跳监测
  close(client.transfer_socket);
  
 }
