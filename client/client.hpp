@@ -14,12 +14,16 @@
 #include <mutex>
 #include <condition_variable>
 
+#include <functional>
+
+// 回调函数类型：接收 ACK 状态（如 "SUCCESS"、"ERROR"）
 
 //#define SERVER_IP "127.0.0.1"
 #define PORT 8080
 #define BUFFER_SIZE 1024
 using namespace std;
 using json = nlohmann::json;
+using AckCallback = std::function<void(const string&)>;
 std::atomic<bool> chat_active{true};//控制好友聊天
 std::atomic<bool> group_active{true};  //控制群聊天
 std::atomic<bool> heartbeat_received(true);
@@ -138,7 +142,7 @@ class FRI{
     void cancel_shidld_friend(TCP &client,LOGIN &login);
     void receive_log(TCP& client,string from_id,string to_id);
     void send_message_no(TCP &client,string from_id,string to_id);
-    void send_file_to_friends(TCP &client,LOGIN &login,string to_id);
+    void send_file_to_friends(TCP &client, LOGIN &login, const string &to_id,AckCallback callback);
     void manage_friends(TCP &client,LOGIN &login);
     void accept_file(TCP &client, LOGIN &login,string to_id);
     void manage_group(GRO &group,TCP &client,LOGIN &login);

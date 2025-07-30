@@ -415,7 +415,18 @@ void FRI:: choose_command(TCP &client, LOGIN &login)
         break;
         case 2:
         cout<<"当前操作：发送文件"<<endl;
-        send_file_to_friends(client,login,to_id);
+        send_file_to_friends(
+    client, 
+    login, 
+    to_id,
+    [](const std::string& ack) {  // 回调函数
+        if (ack == "SUCCESS") {
+            std::cout << "\033[32m文件发送成功！\033[0m" << std::endl;
+        } else {
+            std::cerr << "\033[31m发送失败: " << ack << "\033[0m" << std::endl;
+        }
+    }
+);
         client.recv_server(client.data_socket);
         break;
         case 3:
@@ -515,34 +526,31 @@ void FRI::accept_file(TCP &client, LOGIN &login,string to_id) {
     
     
 }
-#include <thread>
-
-void FRI::send_file_to_friends(TCP &client, LOGIN &login, string to_id) {
+void FRI:: send_file_to_friends(TCP &client, LOGIN &login, const string &to_id,AckCallback callback  ) {
     client.pause_heartbeat();
     string filepath;
     string from_id = login.getuser_id();
-    string type = "send_file";
-    
-    cout << "请输入文件名" << endl;
+
+    cout << "请输入文件名: ";
     cin >> filepath;
 
-    // 验证文件是否存在
+    // 检查文件是否存在
     ifstream test_file(filepath);
     if (!test_file) {
-        cerr << "\033[31m文件" << filepath << "不存在\033[0m" << endl;
+        cerr << "\033[31m文件 " << filepath << " 不存在\033[0m" << endl;
         client.resume_heartbeat();
         return;
     }
     test_file.close();
 
-    // 启动独立线程发送文件
-    std::thread([&client, from_id, to_id, filepath]() {
+    // 启动线程发送文件并等待 ACK
+    std::thread([&client, from_id, to_id, filepath, callback]() {
         try {
-            // 发送文件元信息
+            // 1. 发送文件元信息
             client.send_m("send_file", from_id, to_id, filepath);
             client.connect_transfer_socket();
 
-            // 传输文件内容
+            // 2. 传输文件内容
             ifstream file(filepath, ios::binary);
             if (!file) {
                 cerr << "\033[31m文件打开失败: " << filepath << "\033[0m" << endl;
@@ -561,27 +569,23 @@ void FRI::send_file_to_friends(TCP &client, LOGIN &login, string to_id) {
             file.close();
             shutdown(client.transfer_socket, SHUT_WR);
 
-            // 接收确认
+            // 3. 持续接收，直到拿到 ACK
             char ack[16] = {0};
-            int h = recv(client.data_socket, ack, sizeof(ack) - 1, 0);
-            if (h > 0) {
-                ack[h] = '\0';
-                if (string(ack) == "SUCCESS") {
-                    cout << "\033[32m文件已成功上传\033[0m" << endl;
-                } else {
-                    cerr << "\033[31m上传失败: \033[0m" << ack << endl;
+            while (true) {
+                int h = recv(client.data_socket, ack, sizeof(ack) - 1, 0);
+                if (h > 0) {
+                    ack[h] = '\0';
+                    callback(string(ack));  // 调用回调函数处理 ACK
+                    break;  // 收到 ACK，退出循环
                 }
-            } else {
-                cerr << "未收到服务器确认" << endl;
+                // 可加超时检测，避免无限等待
             }
         } catch (...) {
-            cerr << "\033[31m文件传输线程异常\033[0m" << endl;
+            callback("ERROR");  // 异常时回调
         }
-        
-        // 线程结束时自动关闭套接字和恢复心跳
         close(client.transfer_socket);
         client.resume_heartbeat();
-    }).detach();  // 分离线程，使其独立运行
+    }).detach();  // 仍然 detach，但通过回调确保 ACK 被处理
 }
 void FRI:: manage_friends(TCP &client,LOGIN &login)
 {
@@ -681,13 +685,13 @@ void FRI:: send_message_no(TCP &client,string from_id,string to_id)
         // 等待发送消息的信号
     while (chat_active.load()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));  // 避免占用过多CPU资源
-    if (!chat_active.load()) break;
+    
     string message;
     string type = "send_message_no";
-     if (!chat_active.load()) break; 
+      
     //cout<<"请输入消息"<<endl;
      if (!chat_active.load()) break; 
-    cin.ignore(); 
+    //cin.ignore(); 
     getline(cin, message);
     if(message == "-1")
     {
@@ -696,7 +700,7 @@ void FRI:: send_message_no(TCP &client,string from_id,string to_id)
     }
     client.send_m(type,from_id,to_id,message);
     }
-   // cout<<"我结束了"<<endl;
+    cout<<"我结束了"<<endl;
 }
 void FRI ::receive_log(TCP& client,string from_id,string to_id)
 {
@@ -705,20 +709,19 @@ void FRI ::receive_log(TCP& client,string from_id,string to_id)
     {
     string type = "new_message";
     string message = "0";
-     client.send_m(type,from_id,to_id,message);
+    client.send_m(type,from_id,to_id,message);
     // int bytes;
     // char buffer[BUFFER_SIZE];
     string buffer; 
-     client.rec_m(type,buffer);
-     
+    client.rec_m(type,buffer);
+    
         if(buffer == "没有新消息")
         {
-          
             this_thread::sleep_for(chrono::milliseconds(1500));
             continue;
         }else if(buffer == "对方已把你拉黑")
         {
-             cout<<buffer<<endl;
+            cout<<buffer<<endl;
             chat_active = false;
             //break;
         }else{
@@ -726,12 +729,12 @@ void FRI ::receive_log(TCP& client,string from_id,string to_id)
         }
         
  }
-//cout<<"我也结束了"<<endl;
+cout<<"我也结束了"<<endl;
 }
 void FRI:: open_block(TCP &client,LOGIN &login,string to_id)
 {
     //暂停心跳监测
-    client.pause_heartbeat();
+    
     string from_id,type,message;
     // cout<<"请选择好友"<<endl;
     // cin>>to_id;
@@ -763,6 +766,7 @@ void FRI:: open_block(TCP &client,LOGIN &login,string to_id)
 
         //cout<<"data is"<<data<<endl;
     // }
+    client.pause_heartbeat();
      chat_active = true; 
     thread receive_thread(std::bind(&FRI::receive_log, this, std::ref(client), from_id, to_id)); 
     thread send_thread(std::bind(&FRI::send_message_no, this, std::ref(client), from_id, to_id)); 
@@ -1920,7 +1924,7 @@ void GRO::accept_file_group(TCP &client, LOGIN &login,string group_id) {
 int main(int argc, char* argv[]){
 
 if (argc != 2) {
-    cerr << "Usage:./client 10.30.0.142\n";
+    cerr << "Usage:./Client 10.30.0.142\n";
     return 1;
 }
 const char* SERVER_IP = argv[1]; // 从命令行参数获取服务器IP
