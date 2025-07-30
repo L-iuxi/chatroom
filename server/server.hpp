@@ -180,7 +180,7 @@ void open_block(TCP &client,int data_socket,string from_id,string to_id,DATA &re
      void send_file(TCP &client,int data_socket,string from_id, string to_id, string message, DATA &redis_data);
     
 void accept_file(TCP &client,int data_socket,string from_id, string to_id, string message, DATA &redis_data);
-
+void is_friends(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
   
 
     

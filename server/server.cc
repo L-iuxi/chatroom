@@ -1926,7 +1926,7 @@ int Random_id(){
  }
 
 //创建服务器套接字
-TCP::TCP():pool(4) {
+TCP::TCP():pool(10) {
     server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (server_socket < 0) {  
         perror("Socket failed");
@@ -2014,7 +2014,8 @@ void TCP::start(DATA &redis_data) {
         {
         buffer[bytes] = '\0';
        
-        }else if (bytes == 0) {
+        }
+        else if (bytes == 0) {
                     // 客户端断开连接
                     std::cout << "客户端已断开连接\n";
                     close(client_socket);  // 关闭当前客户端套接字
@@ -2037,7 +2038,8 @@ void TCP::start(DATA &redis_data) {
             pool.enqueue([this, data_socket,&redis_data, &login](){  
             if (login.login_user(data_socket, redis_data)) {
             cout<<"用户已成功登陆"<<endl;
-            this->make_choice(data_socket,redis_data);//进入登陆后的选项  
+            this->make_choice(data_socket,redis_data);
+             close(data_socket);//进入登陆后的选项  
             }
            // close(data_socket);
         });
@@ -2166,7 +2168,7 @@ void TCP:: checkTimeout() {
             if (duration > timeout_limit) {
                 cout << "客户端 " << client_id << " 超时，最后在线时间：" 
                      << chrono::duration_cast<chrono::minutes>(now - last_online_time).count() << " 分钟前。" << endl;
-                // 处理超时客户端（比如关闭连接，或者标记为离线等）
+                // 处理超时客户端
                 handleTimeout(client_id);
             }
         }
@@ -2175,14 +2177,12 @@ void TCP:: checkTimeout() {
     // 处理超时的客户端
 void TCP:: handleTimeout(const string& client_id) {
         cout << "处理客户端 " << client_id << " 的超时状态" << endl;
-        // 例如断开连接或将客户端标记为离线
-        client_last_online_time.erase(client_id); // 移除该客户端的记录，或者执行其他操作
+        client_last_online_time.erase(client_id); 
     }
     void TCP::updateLastOnlineTime(const string& client_id) {
     auto now = chrono::system_clock::now();
     client_last_online_time[client_id] = now;
 
-    // 打印更新的最后在线时间
     cout << "客户端 " << client_id << " 最后在线时间已更新为：" 
          << chrono::duration_cast<chrono::seconds>(now.time_since_epoch()).count() << " 秒。" << endl;
 }
@@ -2442,7 +2442,7 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         {
             cout<<"接收到命令：退出登陆"<<endl;
             remove_user(data_socket);
-            close(data_socket);
+           // close(data_socket);
             break;
         }else if(type == "check_add_friends_request")
         {
@@ -2453,7 +2453,7 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         {
             cout<<"接收到命令：通过好友申请"<<endl;
             friends.add_friend(*this,data_socket,to_id,from_id,redis_data);
-             recived_message(redis_data,find_user_id(data_socket),data_socket);
+             //recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "see_all_friends")
         {
             cout<<"接收到命令:查看所有好友"<<endl;
@@ -2463,7 +2463,7 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         {
             cout<<"接收到命令:拒绝好友申请"<<endl;
             friends.refuse_friend_request(*this,data_socket,to_id,from_id,redis_data);
-            recived_message(redis_data,find_user_id(data_socket),data_socket);
+           // recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "send_message")
         {
            cout<<"接收到命令：发送消息"<<endl;
@@ -2505,6 +2505,11 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
             cout<<"接收到命令：接收文件"<<endl;
             friends.accept_file(*this,data_socket,from_id,to_id,message,redis_data);
              recived_message(redis_data,find_user_id(data_socket),data_socket);
+        }else if(type == "is_friends")
+        {
+            cout<<"收到命令：私聊好友"<<endl;
+            friends.is_friends(*this,data_socket,from_id,to_id,message,redis_data);
+            recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "generate_group")
         {
             cout<<"收到命令：创建群聊"<<endl;
@@ -2516,11 +2521,12 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
             group.delete_group(*this,data_socket,from_id,to_id,message,redis_data);
            
         }else if(type == "get_all_my_group")
-        {
+        {   cout<<"收到命令：查看所有群聊"<<endl;
             group.see_all_group(*this,data_socket,from_id,to_id,message,redis_data);
             recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "see_all_member")
         {
+            cout<<"收到命令：查看群所有成员"<<endl;
             group.see_all_member(*this,data_socket,from_id,to_id,message,redis_data);
              recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "add_admin")
@@ -2589,7 +2595,6 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
               string type = "heart";
               string message = "pong";
               //updateLastOnlineTime(to_string(data_socket));
-
               send_m(data_socket,type,message);
         }
         else{
@@ -2674,7 +2679,31 @@ void FRI::accept_file(TCP &client,int data_socket, string from_id, string to_id,
     close(transfer_socket);
     
 }
-
+void FRI::is_friends(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data)
+{
+    string t = redis_data.get_username_by_id(to_id);
+    if(t == "")
+    {
+        string recover = "要添加的用户不存在";
+        cout<<recover<<endl;
+        client.send_m(data_socket,"other",recover);
+        return;
+    }
+    if(!redis_data.is_friend(to_id,from_id) &&!redis_data.is_friend(from_id,to_id))
+    {
+        string a= "你与该用户还不是好友";
+         client.send_m(data_socket,"other",a);
+        return;
+    }
+    if(redis_data.is_friend(to_id,from_id) &&!redis_data.is_friend(from_id,to_id))
+    {
+         string a= "你已经屏蔽该用户";
+         client.send_m(data_socket,"other",a);
+        return;
+    }
+    string a= "成功";
+    client.send_m(data_socket,"other",a);
+}
 //给登陆的用户一直发送实时消息通知
 void TCP::recived_message(DATA &redis_data, string user_id, int data_socket) {
     string type = "accept";
@@ -2685,7 +2714,7 @@ void TCP::recived_message(DATA &redis_data, string user_id, int data_socket) {
     unordered_map<string, string> latest_messages;
     
     // 绿色ANSI颜色代码
-    const string GREEN = "\033[32m";
+    const string GREEN = "\033[36m";
     const string RESET = "\033[0m";
     
     // 有没有人通过我的好友请求
@@ -2894,12 +2923,12 @@ void FRI :: new_message(TCP &client,int data_socket,string from_id,string to_id,
      }else {
      for (int i = 0;i < messages.size();i++) {
         //recover += username+":" +messages[i]  + "\n";
-recover += std::string("\033[1;36m") + "[" + username + "]" + "\033[0m" + ":" + messages[i] + "\n";
+ recover += std::string("\033[1;36m") + "[" + username + "]" + "\033[0m" + ":" + messages[i] + "\n";
         //cout << ":" << messages[i] << endl;
     }
     // break;
-// }
-}
+ // }
+ }
     //client.send_m()
     client.send_m(data_socket,"other",recover);
 }
@@ -2927,7 +2956,7 @@ void FRI::shield_friend(TCP &client,int data_socket,string from_id,string to_id,
     }
     if(redis_data.is_friend(to_id,from_id) &&!redis_data.is_friend(from_id,to_id))
     {
- string a= "你已经屏蔽该用户";
+         string a= "你已经屏蔽该用户";
          client.send_m(data_socket,"other",a);
         return;
     }
@@ -3013,6 +3042,12 @@ void FRI::send_add_request(TCP &client,int data_socket,string to_id,string from_
         string recover = "要添加的用户不存在";
         cout<<recover<<endl;
         client.send_m(data_socket,"other",recover);
+        return;
+    }
+    if(redis_data.is_friend(to_id,from_id) &&!redis_data.is_friend(from_id,to_id))
+    {
+        string a= "你与该用户已经是好友了";
+         client.send_m(data_socket,"other",a);
         return;
     }
     if(redis_data.check_add_friend_request_duplicata(to_id,from_id))
@@ -3257,34 +3292,48 @@ void GRO::see_all_group(TCP &client,int data_socket, string from_id, string to_i
     }
     client.send_m(data_socket,"other",recover);
 }
-void GRO::see_all_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data)
+void GRO::see_all_member(TCP &client, int data_socket, string from_id, string to_id, string message, DATA& redis_data)
 {
     vector<string> members; 
     members = redis_data.get_all_members(message);
-    if(members.size() == 0)
+    
+    if(members.empty())  
     {
-        cout<<"查询失败"<<endl;
+        client.send_m(data_socket, "other", "该群组没有成员");
+        return;
     }
-     string member_list = "user_id   username    online_status    class\n";
+    
+    std::ostringstream oss;
+ 
+    oss << "\033[1;36m"  // 青色加粗
+        << std::setw(15) << std::left << "user_id" << "    "
+        << std::setw(15) << std::left << "username" << "    "
+        << std::setw(10) << std::left << "status" << "    "
+        << std::setw(10) << std::left << "class"
+        << "\033[0m" << endl;  // 重置颜色
+    
     for (const auto& member_id : members) {
-       string member_name =  redis_data.get_username_by_id(member_id);
-       string online_status = "在线";
-       if(client.find_socket(member_id) == -1)
-       {
-            online_status = "离线";
-       }
-       string member_class = "成员";
-       if(redis_data.is_group_owner(message,member_id))
-       {
-        member_class = "群主";
-
-       }else if(redis_data.is_admin(member_id,message))
-       {
-        member_class = "管理员";
-       }
-        member_list += member_id +"    "+member_name +"    "+online_status+"    "+member_class+"\n";
+        string member_name = redis_data.get_username_by_id(member_id);
+        string online_status = (client.find_socket(member_id) == -1) ? "离线" : "在线";
+        string member_class = "成员";
+        
+        if(redis_data.is_group_owner(message, member_id)) {
+            member_class = "\033[1;31m群主\033[0m";  // 红色加粗
+        } else if(redis_data.is_admin(member_id, message)) {
+            member_class = "\033[1;33m管理员\033[0m";  // 黄色加粗
+        } else {
+            member_class = "\033[37m成员\033[0m";  // 白色
+        }
+        
+        // 格式化输出
+        oss << std::setw(15) << std::left << member_id << "    "
+            << std::setw(15) << std::left << member_name << "    "
+            << (online_status == "在线" ? "\033[32m" : "\033[37m")  // 在线绿色，离线白色
+            << std::setw(10) << std::left << online_status << "\033[0m" << "    "
+            << member_class << "\n";
     }
-    client.send_m(data_socket,"other", member_list);
+    
+    client.send_m(data_socket, "other", oss.str());
 }
 void GRO::add_admin(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data)
 {
@@ -3414,7 +3463,7 @@ void GRO::add_member(TCP &client,int data_socket, string from_id, string to_id, 
     client.send_m(data_socket,"other", a);
     return ;
     }
-    if(redis_data.is_in_group(message,from_id))
+    if(redis_data.is_in_group(message,to_id))
     {
         string response = "用户已在该群聊内";
         client.send_m(data_socket,"other", response);
@@ -3589,7 +3638,7 @@ void GRO::open_group_block(TCP &client,int data_socket, string from_id, string t
     
     stringstream ss;
     for (const auto& [fromid, message, timestamp] : messages) {
-        ss << "[" << timestamp << "] " << fromid << ": " << message << "\n";
+        ss << "[" <<redis_data.get_username_by_id( fromid )<< "] " << fromid << ": " << message << "\n";
     }
 
     string result = ss.str();

@@ -51,13 +51,13 @@ void main_page3(string user_id,string username)
 {
 
 cout<<"-——-——-——-——-——-——-——-——-——-——-——-——- "<<endl;
-cout<<"|     "<< username<<"                |"<<endl;
-cout<<"|      "<<user_id<<"                 |"<<endl;
-cout<<"|            请选择操作OVO            |"<<endl;
-cout<<"|             1.创建群聊              |"<<endl;
-cout<<"|             2.解散群聊              |"<<endl;
-cout<<"|             3.加入群聊              |"<<endl;
-cout<<"|             -1.退出                |"<<endl;
+cout<<"     "<< username<<"                "<<endl;
+cout<<"      "<<user_id<<"                 "<<endl;
+cout<<"            请选择操作OVO            "<<endl;
+cout<<"             1.创建群聊              "<<endl;
+cout<<"             2.解散群聊              "<<endl;
+cout<<"             3.加入群聊              "<<endl;
+cout<<"             -1.退出                "<<endl;
 cout<<"——-——-——-——-————-——-——-——-——-——-——-—— "<<endl;
 }
 void main_page_owner(string user_id,string username)
