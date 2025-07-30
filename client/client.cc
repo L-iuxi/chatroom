@@ -136,19 +136,19 @@ void TCP::new_socket(){
         cerr<<"建立数据套接字时接收数据失败"<<endl;
         return;
     }
-   // cout<<"接收到服务器发来的端口"<<data_port<<endl;
+    cout<<"接收到服务器发来的端口"<<data_port<<endl;
 
     this->data_socket = socket(AF_INET,SOCK_STREAM,0);
     if(this->data_socket == -1)
     {
-        cerr<<"failed  to create datasocket" <<endl;
+        cerr<<"failed  to create data socket" <<endl;
         return;
     }
 
     struct sockaddr_in server_addr;
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(data_port);
-    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);;
 
     if(connect(this->data_socket,(struct sockaddr*)&server_addr,sizeof(server_addr)) == -1)
     {
