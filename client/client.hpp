@@ -16,11 +16,16 @@
 
 #include <functional>
 
-// 回调函数类型：接收 ACK 状态（如 "SUCCESS"、"ERROR"）
+
 
 //#define SERVER_IP "127.0.0.1"
 #define PORT 8080
 #define BUFFER_SIZE 1024
+#define GREEN "\033[32m"
+#define RESET "\033[0m"
+#define RED   "\033[31m"
+#define PRINT_GREEN(msg) cout<<GREEN<<msg<<RESET
+#define PRINT_RED(msg) cout<<RED<<msg<<RESET
 using namespace std;
 using json = nlohmann::json;
 using AckCallback = std::function<void(const string&)>;

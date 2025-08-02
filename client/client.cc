@@ -204,7 +204,8 @@ void LOGIN::register_user(TCP& client) {
     
     
     while (true) {
-        cout << "请输入用户名（不能包含空格）: ";
+        //cout << "请输入用户名（不能包含空格）: ";
+        PRINT_GREEN("请输入用户名（不能包含空格）: ");
         getline(cin, username); 
         
      
@@ -213,9 +214,9 @@ void LOGIN::register_user(TCP& client) {
         
        
         if (username.empty()) {
-            cout << "用户名不能为空！" << endl;
+            PRINT_RED("用户名不能为空！" );
         } else if (username.find(' ') != string::npos) {
-            cout << "用户名不能包含空格！" << endl;
+            PRINT_RED( "用户名不能包含空格！" );
         } else {
             break;  
         }
@@ -224,16 +225,16 @@ void LOGIN::register_user(TCP& client) {
     
  
     while (true) {
-        cout << "请输入密码（至少6位）: ";
+        PRINT_GREEN("请输入密码（至少6位）: ");
         getline(cin, password);
         
         password.erase(0, password.find_first_not_of(" \t\n\r"));
         password.erase(password.find_last_not_of(" \t\n\r") + 1);
         
         if (password.size() < 6) {
-            cout << "密码必须大于六位！" << endl;
+            PRINT_RED( "密码必须大于六位！" );
         } else if (password.find(' ') != string::npos) {
-            cout << "密码不能包含空格！" << endl;
+            PRINT_RED( "密码不能包含空格！" );
         } else {
             break;
         }
@@ -255,11 +256,11 @@ bool LOGIN::login_user(TCP& client){
     string password;
     char buffer[1024] = {0};
    
-    cout<<"请输入账号"<<endl;
+    PRINT_GREEN("请输入账号");
     cin>>user_id;
     send(client.data_socket, user_id.c_str(), user_id.length(), 0);  
     
-    cout<<"请输入密码"<<endl;
+    PRINT_GREEN("请输入密码");
     cin>>password;
     send(client.data_socket, password.c_str(), password.length(), 0);  
     
@@ -309,26 +310,16 @@ void LOGIN::deregister_user(TCP& client){
     string password;
     string username;
     char buffer[1024] = {0};
-    cout<<"请输入账号"<<endl;
+    //cout<<"请输入用户ID"<<endl;
+    PRINT_GREEN("请输入用户ID");
     cin>>user_id;
-    if (user_id.size() == 0)
-    {
-    cout<<"不可以输入空字符串^ ^"<<endl;
-    return;
-    }
     send(client.data_socket, user_id.c_str(), user_id.length(), 0);  
-    // cout<<"请输入用户名"<<endl;
-    // cin>>username;
-    // send(client.getClientSocket(), username.c_str(), username.length(), 0);  
-    cout<<"请输入密码"<<endl;
+    //cout<<"请输入密码"<<endl;
+    PRINT_GREEN("请输入密码");
     cin>>password;
-    if (password.size() == 0)
-    {
-    cout<<"不可以输入空字符串^ ^"<<endl;
-    return;
-    }
+    
     send(client.data_socket, password.c_str(), password.length(), 0);  
-     buffer[1024] = {0};
+    buffer[1024] = {0};
     
    int bytes_received = recv(client.data_socket, buffer, sizeof(buffer) - 1, 0);
     if (bytes_received > 0) {
@@ -907,33 +898,25 @@ void FRI:: check_add_friends_request(TCP &client,LOGIN &login){
     //char buffer[BUFFER_SIZE];
     vector<FriendRequest> requests;
     string serialized_data;
-    cout<<"当前操作：查看该用户id下的好友申请"<<endl;
+   // cout<<"当前操作：查看该用户id下的好友申请"<<endl;
     string type = "check_add_friends_request";
     string from_id = login.getuser_id();
     string to_id= "0" ;
     string message = "0";
     client.send_m(type,from_id,to_id,message);
 
-    //int bytes = recv(client.data_socket,buffer,BUFFER_SIZE,0);
     string buffer;
     client.rec_m(type,buffer);
-    // if(bytes < 0)
-    // {
-    //      buffer[bytes] = '\0';
-    //     cout<<"从服务器获取数据失败"<<endl;
-    //     return;
-    // }
+    
     
     if(buffer == "无好友申请")
     {
-        cout<<buffer<<endl;
+        cout<<"还没有好友申请哦"<<endl;
         return;
     }
-   // buffer[bytes] = '\0';
-   // cout<<buffer<<endl;
+  
     serialized_data = buffer; 
-    //vector<FriendRequest> requests;
-    //memset(buffer, 0, sizeof(buffer));
+    
 
     nlohmann::json j = nlohmann::json::parse(serialized_data);
         
@@ -947,74 +930,50 @@ void FRI:: check_add_friends_request(TCP &client,LOGIN &login){
     }
     for (const auto& req : requests)
     {
-        cout<<"接收到来自id"<<req.from_id<<"的好友申请"<<endl;
-        cout<<":"<<req.message<<endl;
+        cout<<req.from_id<<":"<<req.message<<endl;
     }
 
-    
-        
         int command = -1;
-        cout<<"请选择操作"<<endl<<"1.同意某好友申请"<<endl<<"2.拒绝某好友申请"<<endl<<"-1.退出"<<endl;
+        cout<<"1].同意某好友申请"<<endl<<"2].拒绝某好友申请"<<endl<<"-1].退出"<<endl;
         cin>>command;
-        // cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-        // cin.clear();
          while(1)
         {
-            if(command != 1 &&command != 2 &&command != -1)
-            {
+        if(command != 1 &&command != 2 &&command != -1)
+        {
         cin>>command;
 
         cout<<"请输入1或者2"<<endl;
-            }else {
+        }else {
                 break;
-            }
+        }
         }
         if(command == 1)
         {
             //char buffer2[BUFFER_SIZE]; 
             string buffer2;   
-            cout<<"请输入想要通过的申请id"<<endl;
+            cout<<"请输入想要通过的申请人id"<<endl;
             string to_id;
             cin>>to_id;
-            cout<<"请输入一条验证消息"<<endl;
-            string message;
-            cin>>message;
+            string message = "0";
+            
             type = "approve_friends_requests";
             client.send_m(type,from_id,to_id,message);
-
-            // int byte = recv(client.data_socket,buffer2,BUFFER_SIZE,0);
-            // if(byte < 0)
-            // {
-            //         cout<<"从服务器接收数据失败"<<endl;
-            //         return;
-            // }
-            // buffer2[byte] = '\0';
             client.rec_m(type,buffer2);
             cout<<buffer2<<endl;
-            //memset(buffer2, 0, sizeof(buffer2));
 
         }else if(command == 2){
-          //  char buffer2[BUFFER_SIZE];
             string buffer2;
-            cout<<"请输入想要拒绝的好友申请"<<endl;
+            cout<<"请输入想要拒绝的申请人id"<<endl;
             string to_id;
             cin>>to_id;
             string message = "0";
             type = "refuse_friends_requests";
             client.send_m(type,from_id,to_id,message);
-
-            // int byte = recv(client.data_socket,buffer2,BUFFER_SIZE,0);
-            // if(byte < 0)
-            // {
-            //         cout<<"从服务器接收数据失败"<<endl;
-            // }
-            // buffer2[byte] = '\0';
             client.rec_m(type,buffer2);
             cout<<buffer2<<endl;
-            //  memset(buffer2, 0, sizeof(buffer2));
         }else if(command == -1)
         {
-            string from_id = login.getuser_id();
+        string from_id = login.getuser_id();
        string type = "nothing";
         string to_id = "0";
         string message = "0"; 

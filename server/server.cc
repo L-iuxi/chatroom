@@ -2018,9 +2018,7 @@ void TCP::start(DATA &redis_data) {
         else if (bytes == 0) {
                     // 客户端断开连接
                     std::cout << "客户端已断开连接\n";
-                
-                    close(client_socket);  // 关闭当前客户端套接字
-                    // 不需要 break，这样可以继续处理其他连接
+                    close(client_socket);  
                 } 
         // string recived_message = string(buffer);
         string data(buffer,bytes);
@@ -2039,7 +2037,9 @@ void TCP::start(DATA &redis_data) {
             pool.enqueue([this, data_socket,&redis_data, &login](){  
             if (login.login_user(data_socket, redis_data)) {
             cout<<"用户已成功登陆"<<endl;
+            startHeartbeatMonitor();
             this->make_choice(data_socket,redis_data);
+           // stopHeartbeatMonitor();
              close(data_socket);//进入登陆后的选项  
             }
            // close(data_socket);
@@ -2190,12 +2190,13 @@ void TCP::remove_user(int data_socket)
 // }
 //关闭所有在线的客户端数据套接字
 TCP:: ~TCP(){
+     std::cerr << "TCP对象被析构，socket=" << server_socket << std::endl;
         for(auto& user : logged_users){
             int close_socket = user.first;
             close(close_socket);
             cout<<"已关闭套接字"<<close_socket<<endl;
         }
-    
+     //stopHeartbeatMonitor();
         close(server_socket);
     }
 //登陆注册注销的函数
@@ -2593,7 +2594,7 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         }else if(type == "heart")
         {
             cout<<"接收到客户端心跳监测"<<endl;
-        
+             updateHeartbeat(data_socket);
         }
         else{
             cout<<"接收到命令：未知命令"<<endl;

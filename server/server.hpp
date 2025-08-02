@@ -22,6 +22,7 @@
 #include <ctime>
 #include <tuple>
 #include <algorithm>
+#include <shared_mutex>
 //#include"friend.hpp"
 #include <../other/threadpool.hpp>
 //#include "friend.hpp"
@@ -32,6 +33,7 @@
 #define BUFFER_SIZE 1024
 #define PASV_PORT_MIN  1024
 #define PASV_PORT_MAX 65535
+
 
 using namespace std;
 
@@ -127,9 +129,10 @@ class TCP{
 
     int user_count;  
     unordered_map<int, string> logged_users; 
-   unordered_map<string, chrono::system_clock::time_point> client_last_online_time;
-   // const chrono::minutes timeout_limit = chrono::minutes(5);
-//    const chrono::seconds timeout_limit = chrono::seconds(10);
+    std::unordered_map<int, std::chrono::steady_clock::time_point> client_last_heartbeat_;
+    mutable std::shared_mutex heartbeat_mutex_;
+    std::atomic<bool> monitoring_{false};
+    std::thread monitor_thread_;
     
     string find_user_id(int socket);
     void recived_message(DATA &redis_data,string user_id,int data_socket);
@@ -141,9 +144,48 @@ class TCP{
     int find_socket(const std::string& user_id);
     void remove_user(int data_socket);
     int new_transfer_socket(int client_socket);
-    void checkTimeout();
-    void handleTimeout(const string& client_id);
-     void updateLastOnlineTime(const string& client_id);
+      void updateHeartbeat(int client_socket) {
+        std::unique_lock lock(heartbeat_mutex_);
+        client_last_heartbeat_[client_socket] = std::chrono::steady_clock::now();
+    }
+
+    // 启动心跳监测线程
+    void startHeartbeatMonitor() {
+        monitoring_ = true;
+        monitor_thread_ = std::thread([this]() {
+            while (monitoring_) {
+                checkHeartbeats();
+                cout<<"检查心跳监测"<<endl;
+                std::this_thread::sleep_for(std::chrono::seconds(10)); // 每10秒检查一次
+            }
+        });
+        monitor_thread_.detach();
+    }
+
+    // 停止心跳监测
+    void stopHeartbeatMonitor() {
+        monitoring_ = false;
+        if (monitor_thread_.joinable()) {
+            monitor_thread_.join();
+        }
+    }
+    void checkHeartbeats() {
+        std::unique_lock lock(heartbeat_mutex_);
+        auto now = std::chrono::steady_clock::now();
+        
+        for (auto it = client_last_heartbeat_.begin(); it != client_last_heartbeat_.end(); ) {
+            auto duration = now - it->second;
+            if (duration > std::chrono::minutes(1)) {
+                std::cout << "客户端 " << it->first << " 心跳超时，关闭连接" << std::endl;
+                close(it->first);
+                remove_user(it->first);  // 清理用户数据
+                it = client_last_heartbeat_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+   
 };
 class LOGIN{
    private:
