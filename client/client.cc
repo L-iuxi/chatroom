@@ -444,11 +444,21 @@ void FRI:: choose_command(TCP &client, LOGIN &login)
         break;
         case 2:
         cout<<"当前操作：发送文件"<<endl;
+        if(this->is_transfer)
+        {
+            cout<<"正在发送/接收文件...请等待当前文件处理完"<<endl;
+            break;
+        } 
         send_file_to_friends(client, login, to_id);
         client.recv_server(client.data_socket);
         break;
         case 3:
         cout<<"当前操作：接收文件"<<endl;
+        if(this->is_transfer)
+        {
+            cout<<"正在发送/接收文件...请等待当前文件处理完"<<endl;
+            break;
+        } 
         accept_file(client,login,to_id);
         client.recv_server(client.data_socket);
         break;
@@ -509,8 +519,8 @@ void FRI::accept_file(TCP &client, LOGIN &login,string to_id) {
     send(client.data_socket, choice_str.c_str(), choice_str.size(), 0);
 
     client.connect_transfer_socket();
-
-    thread([&client,download_dir](){
+    this->is_transfer = true;
+    thread([this,&client,download_dir](){
     char buffer[BUFFER_SIZE];
     char filename_buf[256];
     int name_len = recv(client.transfer_socket, filename_buf, sizeof(filename_buf)-1, 0);
@@ -548,6 +558,7 @@ void FRI::accept_file(TCP &client, LOGIN &login,string to_id) {
     }
   //  client.resume_heartbeat();//恢复心跳监测
     close(client.transfer_socket);
+    this->is_transfer = false;
 }).detach();
     
 }
@@ -568,22 +579,20 @@ void FRI:: send_file_to_friends(TCP &client, LOGIN &login,string to_id ) {
     }
     test_file.close();
 
-    // 启动线程发送文件并等待 ACK
-    std::thread([&client, from_id, to_id, filepath]() {
+    this->is_transfer = true;
+    std::thread([this,&client, from_id, to_id, filepath]() {
         
-            // 1. 发送文件元信息
-            client.send_m("send_file", from_id, to_id, filepath);
-            client.connect_transfer_socket();
+        client.send_m("send_file", from_id, to_id, filepath);
+        client.connect_transfer_socket();
 
-            // 2. 传输文件内容
-            ifstream file(filepath, ios::binary);
-            if (!file) {
+        ifstream file(filepath, ios::binary);
+        if (!file) {
                 cerr << "\033[31m文件打开失败: " << filepath << "\033[0m" << endl;
                 return;
-            }
+        }
 
-            char buffer[BUFFER_SIZE];
-            while (!file.eof()) {
+        char buffer[BUFFER_SIZE];
+        while (!file.eof()) {
                 file.read(buffer, BUFFER_SIZE);
                 int bytes_read = file.gcount();
                 if (send(client.transfer_socket, buffer, bytes_read, 0) != bytes_read) {
@@ -610,6 +619,7 @@ void FRI:: send_file_to_friends(TCP &client, LOGIN &login,string to_id ) {
             }
             
         close(client.transfer_socket);
+        this->is_transfer = false;
       //  client.resume_heartbeat();
     }).detach();  
 }
@@ -1311,6 +1321,11 @@ void GRO::open_group_owner(TCP &client,LOGIN &login,int &m,string group_id)
         break;
         case 2:
         cout<<"当前操作：发送文件"<<endl;
+        if(this->is_transfer)
+        {
+            cout<<"正在发送/接收文件...请等待当前文件处理完"<<endl;
+            break;
+        } 
         send_file_group(client,login,group_id);
         client.recv_server(client.data_socket);
         break;
@@ -1318,6 +1333,11 @@ void GRO::open_group_owner(TCP &client,LOGIN &login,int &m,string group_id)
         cout<<"当前操作：发送文件"<<endl;
         accept_file_group(client,login,group_id);
         client.recv_server(client.data_socket);
+        if(this->is_transfer)
+        {
+            cout<<"正在发送/接收文件...请等待当前文件处理完"<<endl;
+            break;
+        }  
         break;
         case 4:
         cout<<"当前操作：退出群聊"<<endl;
@@ -1479,13 +1499,25 @@ void GRO::open_group_admin(TCP &client,LOGIN &login,int &m,string group_id)
         break;
         case 2:
         cout<<"当前操作：发送文件"<<endl;
+        if(this->is_transfer)
+        {
+            cout<<"正在发送/接收文件...请等待当前文件处理完"<<endl;
+            break;
+        } 
         send_file_group(client,login,group_id);
-         client.recv_server(client.data_socket);
+        client.recv_server(client.data_socket);
         break;
         case 3:
         cout<<"当前操作：接收文件"<<endl;
+        if(this->is_transfer)
+        {
+            cout<<"正在发送/接收文件...请等待当前文件处理完"<<endl;
+            break;
+        } 
         accept_file_group(client,login,group_id);
-         client.recv_server(client.data_socket);
+        
+        client.recv_server(client.data_socket);
+
         break;
         case 4:
         cout<<"当前操作：退出群聊"<<endl;
@@ -1542,13 +1574,23 @@ void GRO::open_group_member(TCP &client,LOGIN &login,int &m,string group_id)
         break;
         case 2:
         cout<<"当前操作：发送文件"<<endl;
+        if(this->is_transfer)
+        {
+            cout<<"正在发送/接收文件...请等待当前文件处理完"<<endl;
+            break;
+        } 
         send_file_group(client,login,group_id);
-         client.recv_server(client.data_socket);
+        client.recv_server(client.data_socket);
         break;
         case 3:
         cout<<"当前操作：接收文件"<<endl;
+        if(this->is_transfer)
+        {
+            cout<<"正在发送/接收文件...请等待当前文件处理完"<<endl;
+            break;
+        } 
         accept_file_group(client,login,group_id);
-         client.recv_server(client.data_socket);
+        client.recv_server(client.data_socket);
         break;
         case 4:
         cout<<"当前操作：退出群聊"<<endl;
@@ -1604,19 +1646,12 @@ void GRO::see_all_members(TCP &client,LOGIN &login,string group_id)
     string message = group_id;
     string from_id =  login.getuser_id();
     string to_id = "0";
-     //char buffer[BUFFER_SIZE];
     client.send_m(type,from_id,to_id,message);
 
-    
-    // int bytes = recv(client.data_socket, buffer, BUFFER_SIZE, 0);
-    // if(bytes < 0) {
-    //     cout << "服务器无数据返回" << endl;
-    // } else {
-    //     buffer[bytes] = '\0';
-     string buffer;
+    string buffer;
     client.rec_m(type,buffer);
-        cout  << buffer << endl;
-    // }
+    cout  << buffer << endl;
+    
 }
 void GRO::add_admin(TCP &client,LOGIN &login,string group_id)
 {
@@ -1857,8 +1892,8 @@ void GRO::send_file_group(TCP &client,LOGIN &login,string group_id)
   client.send_m("send_file_group", from_id, to_id, filepath);
  client.connect_transfer_socket();
 
-    // 启动线程发送文件并等待 ACK
-    std::thread([&client, from_id, to_id, filepath]() {
+    this->is_transfer = true;
+    std::thread([this,&client, from_id, to_id, filepath]() {
          cout<<"进入发送文件线程"<<endl;
           //  client.connect_transfer_socket();
 
@@ -1897,15 +1932,12 @@ void GRO::send_file_group(TCP &client,LOGIN &login,string group_id)
             }
             
         close(client.transfer_socket);
+        this->is_transfer = false;
       //  client.resume_heartbeat();
     }).detach(); 
 }
 void GRO::accept_file_group(TCP &client, LOGIN &login,string group_id) {
-    // string to_id;
-    // cout << "请输入好友ID: ";
-    // cin >> to_id;
-    //暂停心跳监测
-    //client.pause_heartbeat();
+    
     const string download_dir = "../download";
     string type = "accept_file_group";
     string from_id = login.getuser_id();
@@ -1942,7 +1974,8 @@ void GRO::accept_file_group(TCP &client, LOGIN &login,string group_id) {
     send(client.data_socket, choice_str.c_str(), choice_str.size(), 0);
 
     client.connect_transfer_socket();
-  thread([&client,download_dir](){
+     this->is_transfer = true;
+    thread([this,&client,download_dir](){
     char filename_buf[256];
     char buffer[BUFFER_SIZE];
     int name_len = recv(client.transfer_socket, filename_buf, sizeof(filename_buf)-1, 0);
@@ -1981,6 +2014,7 @@ void GRO::accept_file_group(TCP &client, LOGIN &login,string group_id) {
    // client.resume_heartbeat();//恢复心跳监测
     close(client.transfer_socket);
    // cout<<"111"<<endl;
+   this->is_transfer = false;
     }).detach(); 
     
 }

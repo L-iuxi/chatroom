@@ -105,6 +105,7 @@ class LOGIN{
 class GRO{
     private:
     string group_id;
+    std::atomic<bool> is_transfer{false}; 
     public:
     //创建群聊
     void generate_group(TCP &client,LOGIN &login); 
@@ -129,6 +130,8 @@ class GRO{
     void accept_file_group(TCP &client, LOGIN &login,string group_id);
 };
 class FRI{
+    private:
+    std::atomic<bool> is_transfer{false}; 
     public:
     void make_choice(TCP &client,LOGIN &login);
     void add_friend(TCP &client,string from_user_id);
