@@ -888,9 +888,9 @@ bool DATA::get_files(string from_id, string to_id,vector<string>& result) {
          {
             cout<<"找到文件"<<endl;
         result.push_back(filename);
-        string new_entry = filename + "|read";
-        redisReply* lset_reply = (redisReply*)redisCommand(c, "LSET %s %d %s", key.c_str(), (int)i, new_entry.c_str());
-        freeReplyObject(lset_reply); 
+       // string new_entry = filename + "|read";
+        //redisReply* lset_reply = (redisReply*)redisCommand(c, "LSET %s %d %s", key.c_str(), (int)i, new_entry.c_str());
+       // freeReplyObject(lset_reply); 
     } 
     }
 
@@ -899,7 +899,7 @@ bool DATA::get_files(string from_id, string to_id,vector<string>& result) {
     }
 //修改文件为已读
 bool DATA::revise_file_status(string from_id,string to_id,string filename) {
-        std::string key = "files:" + to_id;
+        std::string key = "file:" + from_id + ":" + to_id; 
 
         // 1. 获取整个列表
         redisReply* lrange_reply = (redisReply*)redisCommand(c, "LRANGE %s 0 -1", key.c_str());
@@ -2157,37 +2157,37 @@ void TCP::remove_user(int data_socket)
         
     }
 }
-void TCP:: checkTimeout() {
-        auto now = chrono::system_clock::now();
-        for (const auto& entry : client_last_online_time) {
-            const string& client_id = entry.first;
-            const auto& last_online_time = entry.second;
+// void TCP:: checkTimeout() {
+//         auto now = chrono::system_clock::now();
+//         for (const auto& entry : client_last_online_time) {
+//             const string& client_id = entry.first;
+//             const auto& last_online_time = entry.second;
 
            
-            auto duration = chrono::duration_cast<chrono::minutes>(now - last_online_time);
+//             auto duration = chrono::duration_cast<chrono::minutes>(now - last_online_time);
 
-            if (duration > timeout_limit) {
-                cout << "客户端 " << client_id << " 超时，最后在线时间：" 
-                     << chrono::duration_cast<chrono::minutes>(now - last_online_time).count() << " 分钟前。" << endl;
-                // 处理超时客户端
-                handleTimeout(client_id);
-            }
-        }
-    }
+//             if (duration > timeout_limit) {
+//                 cout << "客户端 " << client_id << " 超时，最后在线时间：" 
+//                      << chrono::duration_cast<chrono::minutes>(now - last_online_time).count() << " 分钟前。" << endl;
+//                 // 处理超时客户端
+//                 handleTimeout(client_id);
+//             }
+//         }
+//     }
 
-    // 处理超时的客户端
-void TCP:: handleTimeout(const string& client_id) {
-        cout << "处理客户端 " << client_id << " 的超时状态" << endl;
-        client_last_online_time.erase(client_id); 
-    }
-    void TCP::updateLastOnlineTime(const string& client_id) {
-    auto now = chrono::system_clock::now();
-    client_last_online_time[client_id] = now;
-     int id = std::stoi(client_id);
-    remove_user(id);
-    cout << "客户端 " << client_id << " 最后在线时间已更新为：" 
-         << chrono::duration_cast<chrono::seconds>(now.time_since_epoch()).count() << " 秒。" << endl;
-}
+//     // 处理超时的客户端
+// void TCP:: handleTimeout(const string& client_id) {
+//         cout << "处理客户端 " << client_id << " 的超时状态" << endl;
+//         client_last_online_time.erase(client_id); 
+//     }
+//     void TCP::updateLastOnlineTime(const string& client_id) {
+//     auto now = chrono::system_clock::now();
+//     client_last_online_time[client_id] = now;
+//      int id = std::stoi(client_id);
+//     remove_user(id);
+//     cout << "客户端 " << client_id << " 最后在线时间已更新为：" 
+//          << chrono::duration_cast<chrono::seconds>(now.time_since_epoch()).count() << " 秒。" << endl;
+// }
 //关闭所有在线的客户端数据套接字
 TCP:: ~TCP(){
         for(auto& user : logged_users){
@@ -2582,22 +2582,18 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
             group.open_group_block(*this,data_socket,from_id,to_id,message,redis_data);
         }else if(type ==  "send_file_group")
         {
+            cout<<"收到命令：上传群文件"<<endl;
             group.send_file_group(*this,data_socket,from_id,to_id,message,redis_data);
              recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "accept_file_group")
         {
+            cout<<"收到命令：下载群文件"<<endl;
              group.accept_file_group(*this,data_socket,from_id,to_id,message,redis_data);
               recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "heart")
         {
             cout<<"接收到客户端心跳监测"<<endl;
-              auto now = chrono::system_clock::now();
-              client_last_online_time[to_string(data_socket)] = now;
-              checkTimeout();
-              string type = "heart";
-              string message = "pong";
-              //updateLastOnlineTime(to_string(data_socket));
-              send_m(data_socket,type,message);
+        
         }
         else{
             cout<<"接收到命令：未知命令"<<endl;
@@ -2646,7 +2642,8 @@ void FRI::accept_file(TCP &client,int data_socket, string from_id, string to_id,
         return;
     }
 
-    // 5. 发送选中的文件
+    thread([&client,transfer_socket,to_id,from_id,result,choice]()
+    {
     string filename = to_id + ":" + from_id + ":" + result[choice];
     ifstream file(filename, ios::binary);
     if(!file) {
@@ -2677,16 +2674,18 @@ void FRI::accept_file(TCP &client,int data_socket, string from_id, string to_id,
     }
     file.close();
 
-    // 6. 关闭连接
     close(transfer_socket);
-    
+    cout<<"发送成功"<<endl;
+   
+}).detach();
+     redis_data.revise_file_status(to_id,from_id,result[choice]);
 }
 void FRI::is_friends(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data)
 {
     string t = redis_data.get_username_by_id(to_id);
     if(t == "")
     {
-        string recover = "要添加的用户不存在";
+        string recover = "用户不存在";
         cout<<recover<<endl;
         client.send_m(data_socket,"other",recover);
         return;
@@ -2809,7 +2808,7 @@ void FRI::send_file(TCP &client, int data_socket, string from_id, string to_id, 
     std::thread([&client, transfer_socket, data_socket, from_id, to_id, message, &redis_data]() {
         string full_path = message;
         string filename;
-
+        this_thread::sleep_for(chrono::milliseconds(150));
         // 提取文件名
         size_t t = full_path.find_last_of('/');
         if (t != string::npos) {
@@ -2819,6 +2818,7 @@ void FRI::send_file(TCP &client, int data_socket, string from_id, string to_id, 
         }
         string the_file = filename;
         filename = from_id + ":" + to_id + ":" + filename;
+        cout<<"filename is"<<filename<<endl;
 
         // 打开文件
         ofstream file(filename, ios::binary);
@@ -2841,6 +2841,7 @@ void FRI::send_file(TCP &client, int data_socket, string from_id, string to_id, 
                 if (bytes_recv == 0) {
                     transfer_complete = true; // 正常关闭
                 }
+               // cout<<"我在发送"<<endl;
                 break;
             }
             file.write(buffer, bytes_recv);
@@ -2853,25 +2854,26 @@ void FRI::send_file(TCP &client, int data_socket, string from_id, string to_id, 
             // Redis 操作（加锁保证线程安全）
             bool redis_ok = false;
             {
-              //  std::lock_guard<std::mutex> lock(redis_mutex); // 确保线程安全
+                
+                std::lock_guard<std::mutex> lock(redis_mutex);
                 redis_ok = redis_data.add_file(from_id, to_id, the_file);
             }
 
             if (redis_ok) {
                 cout << "文件接收成功: " << filename << endl;
                 string ack = "SUCCESS";
-                send(data_socket, ack.c_str(), ack.size(), 0);
+                send(transfer_socket, ack.c_str(), ack.size(), 0);
             } else {
                 remove(filename.c_str()); // Redis 失败，删除文件
                 cerr << "Redis记录失败，已删除文件" << endl;
                 string err = "REDIS_ERROR";
-                send(data_socket, err.c_str(), err.size(), 0);
+                send(transfer_socket, err.c_str(), err.size(), 0);
             }
         } else {
             remove(filename.c_str()); // 传输不完整，删除文件
             cerr << "文件接收不完整，已删除" << endl;
             string err = "TRANSFER_ERROR";
-            send(data_socket, err.c_str(), err.size(), 0);
+            send(transfer_socket, err.c_str(), err.size(), 0);
         }
 
         // 关闭套接字
@@ -2975,6 +2977,7 @@ void FRI::open_block(TCP &client,int data_socket,string from_id,string to_id,DAT
     vector<string> message2;
     vector<string> messages;
     string recover;
+
     string username1 =redis_data.get_username_by_id(from_id);
     string username2 =redis_data.get_username_by_id(to_id);
    
@@ -2994,8 +2997,10 @@ void FRI::open_block(TCP &client,int data_socket,string from_id,string to_id,DAT
         return;
     }
     redis_data.see_all_other_message(to_id, from_id, message1);
+    if(from_id != to_id)
+    {
     redis_data.see_all_my_message(from_id, to_id, message2);
-   
+    }
     if(message1.size() == 0 && message2.size() == 0)
     {
         recover = "暂无聊天记录";
@@ -3664,64 +3669,74 @@ void GRO::send_file_group(TCP &client,int data_socket, string from_id, string to
         cerr<<"无法创建传输套接字"<<endl;
         return;
     }
-    string full_path = message;
-    string filename;
-    cout << "收到文件名 " << full_path << endl;
     
-    // 提取文件名
-    size_t t = full_path.find_last_of('/');
-    if (t != string::npos) {
-        filename = full_path.substr(t+1);
-    } else {
-        filename = full_path;
-    }
-    string the_file = filename;
-   // cout << "filename is " << filename << endl;
-   filename = from_id+":"+to_id+":"+filename; 
-    ofstream file(filename, ios::binary);
-    if (!file) {
-        cout << "上传失败，无法创建文件" << endl;
-        string error_msg = "上传失败";
-        send(data_socket, error_msg.c_str(), error_msg.size(), 0);
-        return;
-    }
-
-    char buffer[10086];
-    int total_received;
-    bool transfer_complete = false;
-    string partial_buffer; 
     
-    while(1) {
-     int bytes_recv = recv(transfer_socket, buffer, BUFFER_SIZE, 0);
-        if(bytes_recv <= 0) {
-            if(bytes_recv == 0) {
-                transfer_complete = true; // 正常关闭
-            }
-            break;
+      std::thread([&client, transfer_socket, data_socket, from_id, to_id, message, &redis_data]() {
+        cout<<"进入发送文件线程"<<endl;
+        string full_path = message;
+        string filename;
+        this_thread::sleep_for(chrono::milliseconds(150));
+        // 提取文件名
+        size_t t = full_path.find_last_of('/');
+        if (t != string::npos) {
+            filename = full_path.substr(t + 1);
+        } else {
+            filename = full_path;
         }
-        file.write(buffer, bytes_recv);
-        total_received += bytes_recv;
-    }
-    file.close();
-     cout<<"文件传输结束"<<endl;
-   
-      if(transfer_complete) {
-       if(redis_data.add_file_group(to_id,from_id,the_file)&&redis_data.add_file_to_unread_list(to_id,from_id,the_file))
+        string the_file = filename;
+        filename = from_id + ":" + to_id + ":" + filename;
+        cout<<"filename is"<<filename<<endl;
+
+        // 打开文件
+        ofstream file(filename, ios::binary);
+        
+        if (!file) {
+            cerr << "上传失败，无法创建文件" << endl;
+            string error_msg = "UPLOAD_ERROR";
+            send(transfer_socket, error_msg.c_str(), error_msg.size(), 0);
+            close(transfer_socket);
+            return;
+        }
+  cout<<"开始发送文件"<<endl;
+        // 接收文件内容
+        char buffer[BUFFER_SIZE];
+        int total_received = 0;
+        bool transfer_complete = false;
+
+        while (true) {
+            int bytes_recv = recv(transfer_socket, buffer, BUFFER_SIZE, 0);
+            if (bytes_recv <= 0) {
+                if (bytes_recv == 0) {
+                    transfer_complete = true; // 正常关闭
+                }
+               //cout<<"我在发送"<<endl;
+                break;
+            }
+            file.write(buffer, bytes_recv);
+            total_received += bytes_recv;
+        }
+        file.close();
+
+        // 处理传输结果
+        if (transfer_complete) {
+           
+        if(redis_data.add_file_group(to_id,from_id,the_file)&&redis_data.add_file_to_unread_list(to_id,from_id,the_file))
        {
         cout << "文件接收成功: " << filename << endl;
-        
        }
-       string ack = "SUCCESS";
-        send(data_socket, ack.c_str(), ack.size(), 0);
-    } else {
-        remove(filename.c_str());
-        cerr << "文件接收不完整，已删除" << endl;
-        string err = "ERROR";
-        send(data_socket, err.c_str(), err.size(), 0);
-    }
+        string ack = "SUCCESS";
+        send(transfer_socket, ack.c_str(), ack.size(), 0);
 
-    // 3. 关闭传输套接字
-    close(transfer_socket);
+        } else {
+            remove(filename.c_str()); // 传输不完整，删除文件
+            cerr << "文件接收不完整，已删除" << endl;
+            string err = "TRANSFER_ERROR";
+            send(transfer_socket, err.c_str(), err.size(), 0);
+        }
+
+        // 关闭套接字
+        close(transfer_socket);
+    }).detach(); // 分离线程，自动释放资源
 }
 void GRO::accept_file_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data) {
     vector<string> result;
@@ -3766,7 +3781,11 @@ void GRO::accept_file_group(TCP &client,int data_socket, string from_id, string 
         return;
     }
 
-    // 5. 发送选中的文件
+   
+  
+
+    thread([&client,transfer_socket,to_id,from_id,result,choice,&redis_data]()
+    {
     size_t split_pos = result[choice].find('|');
     string send_fileid = result[choice].substr(0, split_pos);    
     string filename = result[choice].substr(split_pos + 1);       
@@ -3803,9 +3822,12 @@ void GRO::accept_file_group(TCP &client,int data_socket, string from_id, string 
     }
     file.close();
 
-    // 6. 关闭连接
+   
     close(transfer_socket);
+    this_thread::sleep_for(chrono::milliseconds(150));
     redis_data.remove_unread_file(to_id,from_id,result[choice]);
+}).detach();
+
 }
 void GRO::delete_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data)
 {  if(redis_data.is_group_owner(message,to_id))

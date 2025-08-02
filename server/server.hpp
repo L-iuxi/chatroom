@@ -34,7 +34,9 @@
 #define PASV_PORT_MAX 65535
 
 using namespace std;
+
 using json = nlohmann::json;
+std::mutex redis_mutex;
   struct FriendRequest {
     string from_id;
     string message;
@@ -127,7 +129,7 @@ class TCP{
     unordered_map<int, string> logged_users; 
    unordered_map<string, chrono::system_clock::time_point> client_last_online_time;
    // const chrono::minutes timeout_limit = chrono::minutes(5);
-   const chrono::seconds timeout_limit = chrono::seconds(10);
+//    const chrono::seconds timeout_limit = chrono::seconds(10);
     
     string find_user_id(int socket);
     void recived_message(DATA &redis_data,string user_id,int data_socket);

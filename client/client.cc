@@ -120,11 +120,11 @@ void TCP:: heartbeat()
     string to_id = "0";
     string from_id = "0";
     send_m(type,from_id,to_id,message);
-    rec_m(type,message);
-    if (message == "pong") {  
-   // cout<<"收到心跳监测"<<endl;
-    heartbeat_received = true;  
-    }
+//     rec_m(type,message);
+//     if (message == "pong") {  
+//    // cout<<"收到心跳监测"<<endl;
+//     heartbeat_received = true;  
+//     }
     }
 }
 void TCP::new_socket(){
@@ -423,6 +423,9 @@ void FRI:: choose_command(TCP &client, LOGIN &login)
      if(buffer != "成功")
      {
         cout<<buffer<<endl;
+         type = "nothing";
+        message = "0"; 
+        client.send_m(type,from_id,to_id,message);
         return;
      }
     
@@ -437,22 +440,11 @@ void FRI:: choose_command(TCP &client, LOGIN &login)
         case 1:
         cout<<"当前操作：发送消息"<<endl;
         open_block(client,login,to_id);
-        //client.recv_server(client.data_socket);
+        client.recv_server(client.data_socket);
         break;
         case 2:
         cout<<"当前操作：发送文件"<<endl;
-        send_file_to_friends(
-    client, 
-    login, 
-    to_id,
-    [](const std::string& ack) {  // 回调函数
-        if (ack == "SUCCESS") {
-            std::cout << "\033[32m文件发送成功！\033[0m" << std::endl;
-        } else {
-            std::cerr << "\033[31m发送失败: " << ack << "\033[0m" << std::endl;
-        }
-    }
- );
+        send_file_to_friends(client, login, to_id);
         client.recv_server(client.data_socket);
         break;
         case 3:
@@ -460,6 +452,11 @@ void FRI:: choose_command(TCP &client, LOGIN &login)
         accept_file(client,login,to_id);
         client.recv_server(client.data_socket);
         break;
+        case -1:
+        break;
+        default:  
+            cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
+            break;
     }
     if(a == -1)
     {
@@ -476,8 +473,8 @@ void FRI::accept_file(TCP &client, LOGIN &login,string to_id) {
     // cout << "请输入好友ID: ";
     // cin >> to_id;
     //暂停心跳监测
-    client.pause_heartbeat();
-    const string download_dir = "download";
+    //client.pause_heartbeat();
+    const string download_dir = "../download";
     string type = "accept_file";
     string from_id = login.getuser_id();
     string message = "0";
@@ -485,14 +482,14 @@ void FRI::accept_file(TCP &client, LOGIN &login,string to_id) {
 
     client.send_m(type, from_id, to_id, message);
 
-    char buffer[BUFFER_SIZE];
-    int bytes = recv(client.data_socket, buffer, BUFFER_SIZE, 0);
+    char buffer1[BUFFER_SIZE];
+    int bytes = recv(client.data_socket, buffer1, BUFFER_SIZE, 0);
     if (bytes <= 0) {
         cout << "服务器无响应" << endl;
         return;
     }
-    buffer[bytes] = '\0';
-    string response(buffer);
+    buffer1[bytes] = '\0';
+    string response(buffer1);
     if(response == "NO_FILES")
     {
         cout<<"\033[31m没有文件\033[0m"<<endl;
@@ -501,7 +498,7 @@ void FRI::accept_file(TCP &client, LOGIN &login,string to_id) {
 
     
     // 3. 显示文件列表并让用户选择
-    cout << "可下载文件列表:\n" << buffer;
+    cout << "可下载文件列表:\n" << buffer1;
     cout << "请输入要下载的文件序号: ";
     
     int choice;
@@ -513,6 +510,8 @@ void FRI::accept_file(TCP &client, LOGIN &login,string to_id) {
 
     client.connect_transfer_socket();
 
+    thread([&client,download_dir](){
+    char buffer[BUFFER_SIZE];
     char filename_buf[256];
     int name_len = recv(client.transfer_socket, filename_buf, sizeof(filename_buf)-1, 0);
     if(name_len <= 0) {
@@ -547,13 +546,13 @@ void FRI::accept_file(TCP &client, LOGIN &login,string to_id) {
         remove(save_path.c_str());
         cout << "\033[31m文件下载失败\033[0m" << endl;
     }
-    client.resume_heartbeat();//恢复心跳监测
+  //  client.resume_heartbeat();//恢复心跳监测
     close(client.transfer_socket);
-    
+}).detach();
     
 }
-void FRI:: send_file_to_friends(TCP &client, LOGIN &login, const string &to_id,AckCallback callback  ) {
-    client.pause_heartbeat();
+void FRI:: send_file_to_friends(TCP &client, LOGIN &login,string to_id ) {
+    //client.pause_heartbeat();
     string filepath;
     string from_id = login.getuser_id();
 
@@ -570,8 +569,8 @@ void FRI:: send_file_to_friends(TCP &client, LOGIN &login, const string &to_id,A
     test_file.close();
 
     // 启动线程发送文件并等待 ACK
-    std::thread([&client, from_id, to_id, filepath, callback]() {
-        try {
+    std::thread([&client, from_id, to_id, filepath]() {
+        
             // 1. 发送文件元信息
             client.send_m("send_file", from_id, to_id, filepath);
             client.connect_transfer_socket();
@@ -597,21 +596,22 @@ void FRI:: send_file_to_friends(TCP &client, LOGIN &login, const string &to_id,A
 
             // 3. 持续接收，直到拿到 ACK
             char ack[16] = {0};
-            while (true) {
-                int h = recv(client.data_socket, ack, sizeof(ack) - 1, 0);
-                if (h > 0) {
-                    ack[h] = '\0';
-                    callback(string(ack));  // 调用回调函数处理 ACK
-                    break;  // 收到 ACK，退出循环
-                }
-                // 可加超时检测，避免无限等待
+            
+            int h = recv(client.transfer_socket, ack, sizeof(ack) - 1, 0);
+            if (h > 0) {
+             ack[h] = '\0';
+             string a = string(ack);
+                   if(a == "SUCCESS")
+                   {
+                    cout<<"文件发送成功"<<endl;
+                   }else{
+                    cout<<ack<<endl;
+                   }
             }
-        } catch (...) {
-            callback("ERROR");  // 异常时回调
-        }
+            
         close(client.transfer_socket);
-        client.resume_heartbeat();
-    }).detach();  // 仍然 detach，但通过回调确保 ACK 被处理
+      //  client.resume_heartbeat();
+    }).detach();  
 }
 void FRI:: manage_friends(TCP &client,LOGIN &login)
 {
@@ -710,7 +710,7 @@ void FRI:: send_message_no(TCP &client,string from_id,string to_id)
    
         // 等待发送消息的信号
     while (chat_active.load()) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));  // 避免占用过多CPU资源
+   // std::this_thread::sleep_for(std::chrono::milliseconds(100));  // 避免占用过多CPU资源
     
     string message;
     string type = "send_message_no";
@@ -719,11 +719,13 @@ void FRI:: send_message_no(TCP &client,string from_id,string to_id)
      if (!chat_active.load()) break; 
     //cin.ignore(); 
     getline(cin, message);
+    //cout<<"message is"<<message<<endl;
     if(message == "-1")
     {
        chat_active = false;
         break;
     }
+    
     client.send_m(type,from_id,to_id,message);
     }
     //cout<<"我结束了"<<endl;
@@ -739,8 +741,10 @@ void FRI ::receive_log(TCP& client,string from_id,string to_id)
     // int bytes;
     // char buffer[BUFFER_SIZE];
     string buffer; 
+    if (!chat_active.load()) break; 
     client.rec_m(type,buffer);
-    
+    //cout<<"111"<<endl;
+    if (!chat_active.load()) break; 
         if(buffer == "没有新消息")
         {
             this_thread::sleep_for(chrono::milliseconds(1500));
@@ -751,7 +755,7 @@ void FRI ::receive_log(TCP& client,string from_id,string to_id)
             chat_active = false;
             //break;
         }else{
-            cout<<"："<<buffer<<endl;
+            cout<<buffer<<endl;
         }
         
  }
@@ -783,25 +787,21 @@ void FRI:: open_block(TCP &client,LOGIN &login,string to_id)
         return;
         }
         cout<<"-------------------------"<<endl;
-       cout << buffer << endl;
+        cout << buffer << endl;
         cout<<"-----以上为历史聊天记录-----"<<endl;
-         //cout << "正在加载聊天界面，请稍候..." << endl;
     
-    // 等待3秒让用户有时间查看历史记录
-    this_thread::sleep_for(chrono::seconds(3));
-
-        //cout<<"data is"<<data<<endl;
-    // }
     
-     chat_active = true; 
+    chat_active = true; 
     thread receive_thread(std::bind(&FRI::receive_log, this, std::ref(client), from_id, to_id)); 
     thread send_thread(std::bind(&FRI::send_message_no, this, std::ref(client), from_id, to_id)); 
 
     receive_thread.join();
     send_thread.join();
 //    client.resume_heartbeat();//恢复心跳监测
- close(client.transfer_socket);
- 
+//  close(client.transfer_socket);
+  type = "nothing";
+        message = "0"; 
+        client.send_m(type,from_id,to_id,message);
 }
 
 //添加好友函数
@@ -1254,7 +1254,7 @@ void FRI::open_group(GRO &group,TCP &client,LOGIN &login)
     m = 0;
     client.send_m(type,from_id,to_id,message);
     client.rec_m(type,buffer);
-    //cout << buffer << endl;
+   // cout << buffer << endl;
         if(buffer == "该群不存在")
         {
             cout<<"该群不存在"<<endl;
@@ -1275,13 +1275,16 @@ void FRI::open_group(GRO &group,TCP &client,LOGIN &login)
             return;
         }else if(buffer =="群主")
         {
+             //cout<<"群主"<<endl;
             group.open_group_owner(client,login,m,group_id);
+           ;
         }else if(buffer == "管理员")
         {
             group.open_group_admin(client,login,m,group_id);
         }else if(buffer== "成员")
         {
             group.open_group_member(client,login,m,group_id);
+            
         }
     // }
 }
@@ -1293,13 +1296,14 @@ void GRO::open_group_owner(TCP &client,LOGIN &login,int &m,string group_id)
     string b;
     main_page_owner(login.getuser_id(),login.getusername());
     cin>>command;
-    cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    cin.clear();
+    //cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    //cin.clear();
     string type = "";
     string to_id = "";
     string from_id = "";
     string message= "";
     switch(command){
+        
         case 1:
         cout<<"当前操作：在线聊天"<<endl;
         open_group_block(client,login,group_id);
@@ -1360,7 +1364,7 @@ void GRO::open_group_owner(TCP &client,LOGIN &login,int &m,string group_id)
     
         break;
     }   
-    if(command == -1||heartbeat_received == false)
+    if(command == -1)
     {
         m =1 ;
     }
@@ -1392,6 +1396,9 @@ void GRO:: open_group_block(TCP &client,LOGIN &login,string group_id)
 
     receive_thread.join();
     send_thread.join(); 
+    type = "nothing";
+    message = "0"; 
+    client.send_m(type,from_id,to_id,message);
 }
 void GRO:: send_message_group(TCP &client,string from_id,string group_id)
 {
@@ -1539,7 +1546,7 @@ void GRO::open_group_member(TCP &client,LOGIN &login,int &m,string group_id)
          client.recv_server(client.data_socket);
         break;
         case 3:
-        cout<<"当前操作：发送文件"<<endl;
+        cout<<"当前操作：接收文件"<<endl;
         accept_file_group(client,login,group_id);
          client.recv_server(client.data_socket);
         break;
@@ -1829,70 +1836,77 @@ void GRO::see_add_group(TCP &client,LOGIN &login,string group_id)
 }
 void GRO::send_file_group(TCP &client,LOGIN &login,string group_id)
 {
-    //暂停心跳监测
-    client.pause_heartbeat();
     string filepath;
     string from_id = login.getuser_id();
-    string type = "send_file_group";
-    char buffer[BUFFER_SIZE];
-    // cout<<"请输入好友id"<<endl;
-    // cin>>to_id;
-    string  to_id = group_id;
-    cout<<"请输入文件名"<<endl;
-    cin>>filepath;
-    string message = filepath;
+
+    cout << "请输入文件名: ";
+    cin >> filepath;
+
+    // 检查文件是否存在
     ifstream test_file(filepath);
     if (!test_file) {
-        cerr << "文件" << filepath << "不存在" << endl;
-        close(client.transfer_socket);
+        cerr << "\033[31m文件 " << filepath << " 不存在\033[0m" << endl;
+       string type = "nothing";
+        string to_id = "0";
+        string message = "0"; 
+        client.send_m(type,from_id,to_id,message);
         return;
-        //continue;
     }
     test_file.close();
-    client.send_m(type, from_id, to_id, message);
-    client.connect_transfer_socket();
-    string remote_path = filepath;
-            
-    ifstream file(filepath, ios::binary);
-    if (!file) {
-    cerr << " " << filepath << "该路径下文件不存在" << endl;
-    close(client.transfer_socket);
-    return;
+  string to_id = group_id;
+  client.send_m("send_file_group", from_id, to_id, filepath);
+ client.connect_transfer_socket();
 
-    }
-    while(!file.eof()) {
-        file.read(buffer, BUFFER_SIZE);
-        int bytes_read = file.gcount();
-        if(send(client.transfer_socket, buffer, bytes_read, 0) != bytes_read) {
-            cerr << "文件传输中断" << endl;
-            break;
-        }
-    }
-    file.close();
-    shutdown(client.transfer_socket, SHUT_WR);    //  半关闭传输套接字(只关闭写端)
-    char ack[16] = {0};
-    int h = recv(client.data_socket, ack, sizeof(ack)-1, 0);
-    if(h > 0) {
-        ack[h] = '\0';
-        if(string(ack) == "SUCCESS") {
-            cout << "文件已成功上传" << endl;
-        } else {
-            cout << "上传失败: " << ack << endl;
-        }
-    } else {
-        cout << "未收到服务器确认" << endl;
-    }
-    // 最后关闭transfer_socket
-     client.resume_heartbeat();//恢复心跳监测
-    close(client.transfer_socket);
+    // 启动线程发送文件并等待 ACK
+    std::thread([&client, from_id, to_id, filepath]() {
+         cout<<"进入发送文件线程"<<endl;
+          //  client.connect_transfer_socket();
+
+            
+            ifstream file(filepath, ios::binary);
+            if (!file) {
+                cerr << "\033[31m文件打开失败: " << filepath << "\033[0m" << endl;
+                return;
+            }
+            cout<<"开始发送文件"<<endl;
+            char buffer[BUFFER_SIZE];
+            while (!file.eof()) {
+                file.read(buffer, BUFFER_SIZE);
+                int bytes_read = file.gcount();
+                if (send(client.transfer_socket, buffer, bytes_read, 0) != bytes_read) {
+                    cerr << "\033[31m文件传输中断\033[0m" << endl;
+                    break;
+                }
+            }
+            file.close();
+            shutdown(client.transfer_socket, SHUT_WR);
+
+            // 3. 持续接收，直到拿到 ACK
+            char ack[16] = {0};
+            
+            int h = recv(client.transfer_socket, ack, sizeof(ack) - 1, 0);
+            if (h > 0) {
+             ack[h] = '\0';
+             string a = string(ack);
+                   if(a == "SUCCESS")
+                   {
+                    cout<<"文件发送成功"<<endl;
+                   }else{
+                    cout<<ack<<endl;
+                   }
+            }
+            
+        close(client.transfer_socket);
+      //  client.resume_heartbeat();
+    }).detach(); 
 }
 void GRO::accept_file_group(TCP &client, LOGIN &login,string group_id) {
     // string to_id;
     // cout << "请输入好友ID: ";
     // cin >> to_id;
     //暂停心跳监测
-    client.pause_heartbeat();
-    const string download_dir = "download";
+    //client.pause_heartbeat();
+    const string download_dir = "../download";
     string type = "accept_file_group";
     string from_id = login.getuser_id();
     string message = "0";
@@ -1901,14 +1915,14 @@ void GRO::accept_file_group(TCP &client, LOGIN &login,string group_id) {
 
     client.send_m(type, from_id, to_id, message);
 
-    char buffer[BUFFER_SIZE];
-    int bytes = recv(client.data_socket, buffer, BUFFER_SIZE, 0);
+    char buffer1[BUFFER_SIZE];
+    int bytes = recv(client.data_socket, buffer1, BUFFER_SIZE, 0);
     if (bytes <= 0) {
         cout << "服务器无响应" << endl;
         return;
     }
-    buffer[bytes] = '\0';
-    string response(buffer);
+    buffer1[bytes] = '\0';
+    string response(buffer1);
     if(response == "NO_FILES")
     {
         cout<<"没有文件"<<endl;
@@ -1917,7 +1931,7 @@ void GRO::accept_file_group(TCP &client, LOGIN &login,string group_id) {
 
     
     // 3. 显示文件列表并让用户选择
-    cout << "可下载文件列表:\n" << buffer;
+    cout << "可下载文件列表:\n" << buffer1;
     cout << "请输入要下载的文件序号: ";
     
     int choice;
@@ -1928,8 +1942,9 @@ void GRO::accept_file_group(TCP &client, LOGIN &login,string group_id) {
     send(client.data_socket, choice_str.c_str(), choice_str.size(), 0);
 
     client.connect_transfer_socket();
-
+  thread([&client,download_dir](){
     char filename_buf[256];
+    char buffer[BUFFER_SIZE];
     int name_len = recv(client.transfer_socket, filename_buf, sizeof(filename_buf)-1, 0);
     if(name_len <= 0) {
         cerr << "接收文件名失败" << endl;
@@ -1963,9 +1978,10 @@ void GRO::accept_file_group(TCP &client, LOGIN &login,string group_id) {
         remove(save_path.c_str());
         cout << "文件下载失败" << endl;
     }
-    client.resume_heartbeat();//恢复心跳监测
+   // client.resume_heartbeat();//恢复心跳监测
     close(client.transfer_socket);
-    
+   // cout<<"111"<<endl;
+    }).detach(); 
     
 }
 int main(int argc, char* argv[]){
@@ -1991,7 +2007,7 @@ sign_up_page();
 
 cin>>command;
 cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-cin.clear();
+
 if (command == 1) {
 const char *message = "register";  
 send(client.getClientSocket(), message, strlen(message), 0);  
@@ -2023,6 +2039,9 @@ login.deregister_user(client);
     send(client.getClientSocket(), message, strlen(message), 0);
     heartbeat_received = false;
     break;
+}else{
+    cout<<"无效的命令，重新输入吧"<<endl;
+    cin.clear();
 }
 // if(heartbeat_received == false)
 //     {

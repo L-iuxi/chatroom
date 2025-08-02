@@ -142,7 +142,7 @@ class FRI{
     void cancel_shidld_friend(TCP &client,LOGIN &login);
     void receive_log(TCP& client,string from_id,string to_id);
     void send_message_no(TCP &client,string from_id,string to_id);
-    void send_file_to_friends(TCP &client, LOGIN &login, const string &to_id,AckCallback callback);
+    void send_file_to_friends(TCP &client, LOGIN &login,string to_id);
     void manage_friends(TCP &client,LOGIN &login);
     void accept_file(TCP &client, LOGIN &login,string to_id);
     void manage_group(GRO &group,TCP &client,LOGIN &login);
