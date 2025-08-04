@@ -803,20 +803,15 @@ void FRI:: shidld_friend(TCP &client,LOGIN &login)
 //打开聊天框
 void FRI:: send_message_no(TCP &client,string from_id,string to_id)
 {
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
-   
+    //cin.ignore(numeric_limits<streamsize>::max(), '\n');
         // 等待发送消息的信号
     while (chat_active.load()) {
-   // std::this_thread::sleep_for(std::chrono::milliseconds(100));  // 避免占用过多CPU资源
+   
     
     string message;
     string type = "send_message_no";
-      
-    //cout<<"请输入消息"<<endl;
-     if (!chat_active.load()) break; 
-    //cin.ignore(); 
+    if (!chat_active.load()) break;  
     getline(cin, message);
-    //cout<<"message is"<<message<<endl;
     if(message == "-1")
     {
        chat_active = false;
@@ -844,7 +839,7 @@ void FRI ::receive_log(TCP& client,string from_id,string to_id)
     if (!chat_active.load()) break; 
         if(buffer == "没有新消息")
         {
-            this_thread::sleep_for(chrono::milliseconds(1500));
+            this_thread::sleep_for(chrono::milliseconds(1000));
             continue;
         }else if(buffer == "对方已把你拉黑")
         {

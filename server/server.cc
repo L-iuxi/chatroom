@@ -782,7 +782,10 @@ bool DATA::get_messages_2( const string& toid,
     // 遍历所有的消息键
     for (size_t i = 0; i < reply->elements; i++) {
         std::string key = reply->element[i]->str;
-        
+        if (!reply->element[i] || 
+        reply->element[i]->type != REDIS_REPLY_STRING) {
+        continue;  // 跳过无效元素
+    }
         // 提取fromid (格式为 messages:fromid:toid)
         size_t first_colon = key.find(':');
         size_t second_colon = key.find(':', first_colon + 1);
@@ -3382,7 +3385,9 @@ void FRI::open_block(TCP &client,int data_socket,string from_id,string to_id,DAT
         
         return std::stoll(timestamp_a) < std::stoll(timestamp_b); 
     });
-
+  if(messages.size() > 50) {
+        messages.erase(messages.begin(), messages.end() - 50);
+    }
     for (auto& msg : messages) {
         size_t pipe_pos = msg.rfind('|'); 
         std::string timestamp = msg.substr(pipe_pos + 1); 
@@ -4193,15 +4198,15 @@ void GRO::accept_file_group(TCP &client,int data_socket, string from_id, string 
 
 }
 void GRO::delete_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data)
-{  if(redis_data.is_group_owner(message,to_id))
+{   if(!redis_data.is_in_group(message,to_id))
     {
-        string response = "不可以踢出群主\n";
+        string response = "该用户不在群聊内\n";
         client.send_m(data_socket,"other", response);
         return;
     }
-    if(redis_data.is_group_owner(message,from_id)&&redis_data.is_admin(to_id,message))
+    if(redis_data.is_group_owner(message,to_id))
     {
-        string response = "已成功将该用户踢出群聊";
+        string response = "不可以踢出群主\n";
         client.send_m(data_socket,"other", response);
         return;
     }
@@ -4211,12 +4216,18 @@ void GRO::delete_member(TCP &client,int data_socket, string from_id, string to_i
        client.send_m(data_socket,"other", response);
         return;
     }
-    if(redis_data.remove_group_member(message,to_id))
+    
+    if(redis_data.is_group_owner(message,from_id)||redis_data.is_admin(from_id,message))
+    {
+         if(redis_data.remove_group_member(message,to_id))
     {
          string response = "已成功将该用户踢出群聊";
+         cout<<response<<endl;
         client.send_m(data_socket,"other", response);
         return;
     }
+    }
+    
 }
 //删除空格以便存入message消息库
 string delete_space(const std::string& message) {
