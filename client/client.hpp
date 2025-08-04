@@ -46,8 +46,11 @@ class TCP{
     char buffer[BUFFER_SIZE];
     int heart_socket;
     public:
+    int notice_socket;
     int transfer_socket;
     int data_socket;
+    std::atomic<bool> notice_thread_running_{false};
+    std::thread notice_thread_;
     const char* SERVER_IP;
      
     TCP(const char* IP);//建立客户端套接字
@@ -61,11 +64,14 @@ class TCP{
     void new_socket();
     void connect_transfer_socket();
     void heartbeat();
+    void connect_notice_socket();
+    void notice_receiver_thread();
 
    ~TCP()
    {
     close(client_socket);
     close(data_socket);
+    close(notice_socket);
    }
    void recv_server(int data_socket);
    void pause_heartbeat()
@@ -79,7 +85,7 @@ class TCP{
     is_paused = false;  // 设置线程恢复标志
     cv.notify_one();  // 通知心跳线程继续
 }
-   
+   void  notice_message();
 };
 class LOGIN{
     private:

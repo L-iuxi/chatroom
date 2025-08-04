@@ -67,43 +67,86 @@ void TCP::send_m(string type, string from_sb, string to_sb, string message) {
 
 // 接收消息
 bool TCP::rec_m(string &type, string &message) {
-   
-    uint32_t len;
-    ssize_t bytes = recv(this->data_socket, &len, sizeof(len), MSG_WAITALL);
-    if (bytes != sizeof(len)) {
-        if (bytes == 0)
-        { 
-        heartbeat_received = false;
-       cout<<"与服务器连接已断开"<<endl;
-       close(data_socket);
+    vector<char> buffer;       // 静态缓冲区保存未处理数据
+    static size_t expected_len = 0;   // 当前期望接收的消息长度
+    static bool reading_header = true; // 当前是否正在读取消息头
 
+    // 先尝试读取消息头（4字节长度）
+    if (reading_header && buffer.size() < sizeof(uint32_t)) {
+        char header_buf[sizeof(uint32_t)];
+        ssize_t bytes = recv(data_socket, header_buf + buffer.size(), 
+                           sizeof(uint32_t) - buffer.size(), 0);
+        
+        if (bytes <= 0) {
+            if (bytes == 0) {
+                heartbeat_received = false;
+                cout << "与服务器连接已断开" << endl;
+                close(data_socket);
+            }
+            return false;
         }
-    }
-    
-    len = ntohl(len); 
-    
-   
-    vector<char> buf(len);
-    bytes = recv(this->data_socket, buf.data(), len, MSG_WAITALL);
-    if (bytes != len) {
-        if (bytes == 0)
-        { 
-        heartbeat_received = false;
-       cout<<"与服务器连接已断开"<<endl;
-       close(data_socket);
-
-        }
+        
+        buffer.insert(buffer.end(), header_buf, header_buf + bytes);
       
+        if (buffer.size() < sizeof(uint32_t)) {
+            return false;
+        }
+        
+        uint32_t len;
+        memcpy(&len, buffer.data(), sizeof(len));
+        expected_len = ntohl(len);
+        buffer.clear(); 
+        reading_header = false;
     }
-  //cout<<"接收到数据"<<buf.data()<<endl;
-    
+
+    // 读取消息体
+    if (!reading_header && buffer.size() < expected_len) {
+        size_t remaining = expected_len - buffer.size();
+        vector<char> temp_buf(min(remaining, (size_t)4096)); // 每次最多读4K
+        
+        ssize_t bytes = recv(data_socket, temp_buf.data(), temp_buf.size(), 0);
+        if (bytes <= 0) {
+            if (bytes == 0) {
+                heartbeat_received = false;
+                cout << "与服务器连接已断开" << endl;
+                close(data_socket);
+            }
+            return false;
+        }
+        
+        buffer.insert(buffer.end(), temp_buf.begin(), temp_buf.begin() + bytes);
+        
+        // 如果还没收完完整消息，返回继续接收
+        if (buffer.size() < expected_len) {
+            return false;
+        }
+
+    }
+
+    // 完整消息已接收，开始解析
     try {
-        auto parsed = json::parse(string(buf.begin(), buf.end()));
+         if(buffer.empty()) {
+            throw runtime_error("接收到的数据为空");
+        }
+
+        auto parsed = json::parse(string(buffer.begin(), buffer.end()));
         type = parsed["type"];
         message = parsed["message"];
-        //cout<<"接收到message"<<message<<endl;
+       // cout << "接收到数据: " << message << endl;
+        if (buffer.size() > expected_len) {
+            vector<char> remaining(buffer.begin() + expected_len, buffer.end());
+            buffer = std::move(remaining);
+        } else {
+            buffer.clear();
+        }
+        expected_len = 0;
+        reading_header = true;
+        
         return true;
     } catch (const json::parse_error& e) {
+        buffer.clear();
+        expected_len = 0;
+        reading_header = true;
         throw runtime_error("JSON解析失败: " + string(e.what()));
     }
 }
@@ -120,13 +163,10 @@ void TCP:: heartbeat()
     string to_id = "0";
     string from_id = "0";
     send_m(type,from_id,to_id,message);
-//     rec_m(type,message);
-//     if (message == "pong") {  
-//    // cout<<"收到心跳监测"<<endl;
-//     heartbeat_received = true;  
-//     }
+
     }
 }
+
 void TCP::new_socket(){
     int data_port;
 
@@ -195,6 +235,39 @@ void TCP::connect_transfer_socket() {
     }
 
     cout << "已连接到传输端口：" << transfer_port << endl;
+}
+void TCP::connect_notice_socket() {
+    int notice_port;
+    
+    // 接收服务器发来的传输端口号
+    if(recv(data_socket, &notice_port, sizeof(notice_port), 0) <= 0) {
+        cerr << "接收通知端口失败" << endl;
+        return;
+    }
+
+    // 创建通知套接字
+    notice_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if(notice_socket == -1) {
+        cerr << "传输套接字创建失败" << endl;
+        return;
+    }
+
+    // 连接服务器
+    sockaddr_in server_addr{};
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(notice_port);
+    server_addr.sin_addr.s_addr = inet_addr(SERVER_IP); // 根据实际情况修改
+
+    if(connect(notice_socket, (sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
+        cerr << "连接传输套接字失败" << endl;
+        close(notice_socket);
+        return;
+    }
+    
+    notice_thread_running_ = true;
+    notice_thread_ = std::thread(&TCP::notice_receiver_thread, this);
+    notice_thread_.detach(); 
+    //cout << "已连接到传输端口：" << transfer_port << endl;
 }
 //login类关于登陆注册注销的函数
 
@@ -292,17 +365,20 @@ bool LOGIN::login_user(TCP& client){
  }
 void TCP::recv_server(int data_socket)
     {
-        char b[1024];
-        int by = recv(data_socket,b,sizeof(b),0);
-    if(by > 0 )
-    {
-        b[by] = '\0';
+        string message,type;
+        rec_m(type,message);
+
+    //     char b[1024];
+    //     int by = recv(data_socket,b,sizeof(b),0);
+    // if(by > 0 )
+    // {
+    //     b[by] = '\0';
          cout<<"*************************************"<<endl;
-         cout<<b<<endl;
+         cout<<message<<endl;
          cout<<"*************************************"<<endl;
-    }else{
-        cout<<"无数据"<<endl;
-    }
+    // }else{
+    //     cout<<"无数据"<<endl;
+    // }
     }
    
 void LOGIN::deregister_user(TCP& client){
@@ -330,17 +406,36 @@ void LOGIN::deregister_user(TCP& client){
     }
     
   }
+void TCP::notice_receiver_thread() {
+        char buffer[1024];
+        while (notice_thread_running_) {
+            ssize_t bytes = recv(notice_socket, buffer, sizeof(buffer), 0);
+            if (bytes <= 0) {
+                if (bytes == 0) {
+                    std::cerr << "通知服务器连接已关闭" << std::endl;
+                } else {
+                    std::cerr << "通知接收错误: " << strerror(errno) << std::endl;
+                }
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                continue;
+            }else{
+                cout<<buffer<<endl;
+            }
 
-//登陆成功后进入选择
+            // 处理接收到的通知
+            //std::string notice(buffer, bytes);
+           // handle_notice(notice);
+        }
+    }
+  //登陆成功后进入选择
 void FRI:: make_choice(TCP &client,LOGIN &login){
-    //const char* message = nullptr; 
-    //int command; 
 
-     client.recv_server(client.data_socket);
-     GRO group;
+    //开始接收线程
+    client.connect_notice_socket();
+    client.recv_server(client.data_socket);
+    GRO group;
     while(1)
     {
-   
     int command = 0; 
     string b;
     main_page(login.getuser_id(),login.getusername());
@@ -392,6 +487,7 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
         type = "quit";
         from_id = login.getuser_id();
         client.send_m(type,from_id,to_id,message); 
+         close(client.notice_socket);
         break;
     }   
     if(command == -1)
@@ -2031,6 +2127,7 @@ login.deregister_user(client);
     const char* message = "quit";
     send(client.getClientSocket(), message, strlen(message), 0);
     heartbeat_received = false;
+   
     break;
 }else{
     cout<<"无效的命令，重新输入吧"<<endl;

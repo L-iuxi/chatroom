@@ -135,7 +135,7 @@ bool DATA::delete_user(string user_id){
 //把发过来的好友申请存到好友申请表里面
 bool DATA::add_friends_request(string from_id, string to_id, string message, string status) {
    //用列表储存一个用户收到的所有好友申请
-    redisReply *reply = (redisReply*) redisCommand(c, "RPUSH request:%s requests %s|%s|%s", to_id.c_str(), from_id.c_str(), message.c_str(), status.c_str());
+    redisReply *reply = (redisReply*) redisCommand(c, "RPUSH request:%s %s|%s|%s", to_id.c_str(), from_id.c_str(), message.c_str(), status.c_str());
 
     if (reply && reply->type == REDIS_REPLY_INTEGER && reply->integer > 0) {
         freeReplyObject(reply); 
@@ -202,7 +202,61 @@ bool DATA::remove_friends_request(string from_id, string to_id, string message, 
     freeReplyObject(deleteReply);
     return false;  
 }
-//在好友申请列表里面寻找是否有好友请求、
+//发送在线好友请求
+string DATA::check_add_request_and_revise(string to_id) {
+    // 获取指定 to_id 的所有好友请求
+    redisReply* reply = (redisReply*)redisCommand(c, "LRANGE request:%s 0 -1", to_id.c_str());
+
+    if (reply && reply->type == REDIS_REPLY_ARRAY) {
+        vector<FriendRequest> requests;
+        for (size_t i = 0; i < reply->elements; ++i) {
+            // 跳过非请求数据（如"requests"）
+            if (strcmp(reply->element[i]->str, "requests") == 0) {
+                continue;
+            }
+
+            string request_str = reply->element[i]->str;
+            size_t pos1 = request_str.find('|');
+            size_t pos2 = request_str.find('|', pos1 + 1);
+
+            if (pos1 != string::npos && pos2 != string::npos) {
+                string from_id = request_str.substr(0, pos1);
+                string message = request_str.substr(pos1 + 1, pos2 - pos1 - 1);
+                string status = request_str.substr(pos2 + 1);
+
+                // 只处理status为"unread"的请求
+                if (status  == "unread") {
+                    FriendRequest req;
+                    req.from_id = from_id;
+                    req.message = message;
+                    req.status = status;
+                    requests.push_back(req);
+                    revise_status(from_id,to_id,"send");
+                }
+            }
+        }
+
+        try {
+            json j;
+            for (const auto& req : requests) {
+                j.push_back({
+                    {"from_id", req.from_id},
+                    {"message", req.message},
+                    {"status", req.status}
+                });
+            }
+            string serialized_data = j.dump();
+            freeReplyObject(reply);
+            return serialized_data;
+        } catch (const std::exception& e) {
+            std::cerr << "JSON 序列化失败: " << e.what() << std::endl;
+            freeReplyObject(reply);
+            return "";
+        }
+    }
+    freeReplyObject(reply);
+    return "";
+}
 string DATA::check_add_request(string to_id) {
     // 获取指定 to_id 的所有好友请求
     redisReply* reply = (redisReply*)redisCommand(c, "LRANGE request:%s 0 -1", to_id.c_str());
@@ -225,7 +279,7 @@ string DATA::check_add_request(string to_id) {
                 string status = request_str.substr(pos2 + 1);
 
                 // 只处理status为"unread"的请求
-                if (status == "unread") {
+                if (status  != "accept" && status != "refuse") {
                     FriendRequest req;
                     req.from_id = from_id;
                     req.message = message;
@@ -884,7 +938,7 @@ bool DATA::get_files(string from_id, string to_id,vector<string>& result) {
         std::string filename = entry.substr(0, separator_pos);
         std::string status = entry.substr(separator_pos + 1);
 
-         if (status == "unread") 
+         if (status != "read") 
          {
             cout<<"找到文件"<<endl;
         result.push_back(filename);
@@ -897,6 +951,7 @@ bool DATA::get_files(string from_id, string to_id,vector<string>& result) {
     freeReplyObject(reply);
     return true;
     }
+
 //修改文件为已读
 bool DATA::revise_file_status(string from_id,string to_id,string filename) {
         std::string key = "file:" + from_id + ":" + to_id; 
@@ -923,7 +978,7 @@ bool DATA::revise_file_status(string from_id,string to_id,string filename) {
             std::string current_filename = entry.substr(pos1 + 1, pos2 - pos1 - 1);
             std::string status = entry.substr(pos2 + 1);
 
-            if (current_from_id == from_id && current_filename == filename && status == "unread") {
+            if (current_from_id == from_id && current_filename == filename && (status == "send"||status == "unread")) {
                 // 3. 更新状态为 "read"
                 std::string new_entry = from_id + "|" + filename + "|read";
                 redisReply* lset_reply = (redisReply*)redisCommand(
@@ -942,7 +997,6 @@ bool DATA::revise_file_status(string from_id,string to_id,string filename) {
 bool DATA::get_unread_files(string to_id, vector<pair<string, string>>& result) {
     result.clear();
     
-    // 1. 首先查找所有匹配的键 (file:*:toid)
     redisReply* keys_reply = (redisReply*)redisCommand(c, "KEYS file:*:%s", to_id.c_str());
     
     if (!keys_reply || keys_reply->type != REDIS_REPLY_ARRAY) {
@@ -950,16 +1004,13 @@ bool DATA::get_unread_files(string to_id, vector<pair<string, string>>& result) 
         return false;
     }
 
-    // 2. 遍历所有匹配的键
     for (size_t i = 0; i < keys_reply->elements; i++) {
         string key = keys_reply->element[i]->str;
         
-        // 从键名中提取 from_id (file:<from_id>:<to_id>)
         size_t first_colon = key.find(':');
         size_t second_colon = key.find(':', first_colon + 1);
         string from_id = key.substr(first_colon + 1, second_colon - first_colon - 1);
 
-        // 3. 获取该键下的所有文件
         redisReply* files_reply = (redisReply*)redisCommand(c, "LRANGE %s 0 -1", key.c_str());
         
         if (!files_reply || files_reply->type != REDIS_REPLY_ARRAY) {
@@ -967,7 +1018,6 @@ bool DATA::get_unread_files(string to_id, vector<pair<string, string>>& result) 
             continue;
         }
 
-        // 4. 检查每个文件状态
         for (size_t j = 0; j < files_reply->elements; j++) {
             string entry = files_reply->element[j]->str;
             size_t separator = entry.find('|');
@@ -987,6 +1037,68 @@ bool DATA::get_unread_files(string to_id, vector<pair<string, string>>& result) 
     
     freeReplyObject(keys_reply);
     return true;
+}
+//找到未读文件，更新为send
+bool DATA::process_and_mark_unread_files(string to_id, vector<pair<string, string>>& result) {
+    result.clear();
+    bool any_updated = false;
+    redisReply* keys_reply = (redisReply*)redisCommand(c, "KEYS file:*:%s", to_id.c_str());
+    
+    if (!keys_reply || keys_reply->type != REDIS_REPLY_ARRAY) {
+        if (keys_reply) freeReplyObject(keys_reply);
+        return false;
+    }
+
+    for (size_t i = 0; i < keys_reply->elements; i++) {
+        string key = keys_reply->element[i]->str;
+        
+    
+        size_t first_colon = key.find(':');
+        size_t second_colon = key.find(':', first_colon + 1);
+        string from_id = key.substr(first_colon + 1, second_colon - first_colon - 1);
+
+    
+        redisReply* files_reply = (redisReply*)redisCommand(c, "LRANGE %s 0 -1", key.c_str());
+        
+        if (!files_reply || files_reply->type != REDIS_REPLY_ARRAY) {
+            if (files_reply) freeReplyObject(files_reply);
+            continue;
+        }
+
+        // 4. 检查每个文件状态并更新
+        for (size_t j = 0; j < files_reply->elements; j++) {
+            string entry = files_reply->element[j]->str;
+            size_t separator = entry.find('|');
+            
+            if (separator == string::npos) continue;
+            
+            string filename = entry.substr(0, separator);
+            string status = entry.substr(separator + 1);
+            
+            if (status == "unread") {
+                // 添加到结果集
+                result.emplace_back(from_id, filename);
+                
+                // 更新状态为 "read"
+               // cout<<"已更新"<<endl;
+                string new_entry = filename + "|send";
+                redisReply* lset_reply = (redisReply*)redisCommand(
+                    c, "LSET %s %d %s", key.c_str(), (int)j, new_entry.c_str()
+                );
+                
+                if (lset_reply && lset_reply->type == REDIS_REPLY_STATUS) {
+                    any_updated = true;
+                }
+                
+                if (lset_reply) freeReplyObject(lset_reply);
+            }
+        }
+        
+        freeReplyObject(files_reply);
+    }
+    
+    freeReplyObject(keys_reply);
+    return any_updated || !result.empty();
 }
 //从所有成员中移除某人
 bool DATA::remove_group_member(string group_id, string member_id) {
@@ -1510,8 +1622,44 @@ vector<pair<string, string>> DATA::get_unread_applications(string group_id) {
         string message = entry.substr(colon_pos + 1, pipe_pos - colon_pos - 1);
         string status = entry.substr(pipe_pos + 1);
         
+        if (status == "unread"||status == "send") {
+            result.emplace_back(from_id, message);
+        }
+    }
+    
+    freeReplyObject(reply);
+    return result;
+}
+//实时发送群申请
+vector<pair<string, string>> DATA::get_group_applications(string group_id) {
+    vector<pair<string, string>> result;
+    
+    string redis_key = "group:apply:" + group_id;
+    
+    redisReply* reply = (redisReply*)redisCommand(c, "LRANGE %s 0 -1", redis_key.c_str());
+    
+    if (!reply || reply->type != REDIS_REPLY_ARRAY) {
+        if (reply) freeReplyObject(reply);
+        return result;
+    }
+    
+    for (size_t i = 0; i < reply->elements; i++) {
+        string entry = reply->element[i]->str;
+        
+        size_t colon_pos = entry.find(':');
+        size_t pipe_pos = entry.find('|');
+        
+        if (colon_pos == string::npos || pipe_pos == string::npos) {
+            continue; 
+        }
+        
+        string from_id = entry.substr(0, colon_pos);
+        string message = entry.substr(colon_pos + 1, pipe_pos - colon_pos - 1);
+        string status = entry.substr(pipe_pos + 1);
+        
         if (status == "unread") {
             result.emplace_back(from_id, message);
+            revise_group_status(from_id,group_id,"send") ;
         }
     }
     
@@ -1547,14 +1695,83 @@ bool DATA::set_last_read_time(string user_id,string group_id,string timestamp) {
         "SET user:last_read:%s:%s %s",user_id.c_str(),group_id.c_str(),timestamp.c_str()
     );
 
-    bool success = (reply && reply->type != REDIS_REPLY_ERROR);
+    bool read_success = (reply && reply->type == REDIS_REPLY_STATUS && 
+                        strcmp(reply->str, "OK") == 0);
+    
+    bool notify_success = set_last_notified_time(user_id, group_id, timestamp);
+    if (!read_success || !notify_success) {
+        cerr << "设置时间失败 - 已读:" << (read_success ? "成功" : "失败")
+             << " 通知:" << (notify_success ? "成功" : "失败") << endl;
+        return false;
+    }
+    freeReplyObject(reply);
+    return true; 
+}
+//设置最后通知时间
+bool DATA::set_last_notified_time(const string& user_id, const string& group_id, const string& timestamp) {
+    redisReply* reply = (redisReply*)redisCommand(
+        c,
+        "SET user:last_notified:%s:%s %s",
+        user_id.c_str(), group_id.c_str(), timestamp.c_str()
+    );
+
+    bool success = (reply && reply->type == REDIS_REPLY_STATUS && strcmp(reply->str, "OK") == 0);
+    
     if (!success) {
-        std::cerr << "设置最后已读时间失败: " 
-                  << (reply ? reply->str : "无响应") << std::endl;
+        cerr << "设置最后通知时间失败: " 
+             << (reply ? reply->str : "无响应") << endl;
     }
     
     freeReplyObject(reply);
     return success;
+}
+//获取所有未通知的消息
+vector<pair<string, string>> DATA::get_unnotice_messages(string user_id, string group_id) {
+   string max_time;
+   redisReply* reply = (redisReply*)redisCommand(
+        c, "GET user:last_notified:%s:%s", user_id.c_str(), group_id.c_str()
+    );
+    string last_notified = "0";
+    if (reply && reply->type == REDIS_REPLY_STRING) {
+        last_notified = reply->str;
+    }
+    freeReplyObject(reply);
+
+    // 3. 获取所有未读消息（基于最后已读时间）
+    reply = (redisReply*)redisCommand(
+        c, "ZRANGEBYSCORE chat:%s (%s +inf WITHSCORES",  
+        group_id.c_str(),last_notified.c_str()
+    );
+
+    vector<pair<string, string>> messages;
+    if (reply && reply->type == REDIS_REPLY_ARRAY) {
+        for (size_t i = 0; i < reply->elements; i += 2) {
+            if (i+1 >= reply->elements) break;
+            
+            string timestamp = reply->element[i+1]->str;
+            string full_message = reply->element[i]->str;
+
+            // 只返回未通知的消息（时间戳 > last_notified）
+            if (timestamp > last_notified) {
+                size_t colon_pos = full_message.find('|');
+                if (colon_pos != string::npos) {
+                    messages.emplace_back(
+                        full_message.substr(0, colon_pos),
+                        full_message.substr(colon_pos + 1)
+                    );
+                } else {
+                    messages.emplace_back("unknown", full_message);
+                }
+                 max_time = timestamp;
+            }
+
+        }
+    }
+    if (!messages.empty()) {
+        set_last_notified_time(user_id, group_id, max_time);
+    }
+    freeReplyObject(reply);
+    return messages;
 }
 //获取所有小于最后已读时间的
 vector<tuple<string, string, string>> DATA::get_read_messages(string user_id, string group_id) {
@@ -1813,6 +2030,7 @@ void TCP::send_m(int data_socket, string type, string message) {
     if (send(data_socket, send_buf.data(), send_buf.size(), 0) != send_buf.size()) {
         cerr << "服务器发送失败" << endl;
     }
+    //cout<<"已发送"<<serialized_message<<endl;
 }
 
 // 服务器接收
@@ -1825,7 +2043,11 @@ bool TCP::rec_m(string &type, string &from_id, string &to_id, string &message, i
         uint32_t len;
         ssize_t bytes = recv(data_socket, &len, sizeof(len), 0);
         
-        if (bytes == 0) return false;
+        if (bytes == 0) 
+        {
+            cout<<"断开连接"<<endl;
+            return false;
+        }
         if (bytes != sizeof(len)) {
             // 可能只收到了部分长度头，保存到buffer待下次处理
             buffer.insert(buffer.end(), (char*)&len, (char*)&len + bytes);
@@ -1914,6 +2136,46 @@ int TCP::new_transfer_socket(int data_socket) {
     }
 
     cout << "传输套接字已建立，端口：" << transfer_port << endl;
+    return transfer_conn; 
+}
+int TCP::new_notice_socket(int data_socket) {
+
+  int notice_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if(notice_socket == -1) {
+        cerr << "传输套接字创建失败" << endl;
+        return -1;
+    }
+
+    int notice_port = generate_port(); 
+    
+
+    sockaddr_in server_addr{};
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(notice_port);
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+
+    if(bind(notice_socket, (sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
+        cerr << "传输套接字绑定失败" << endl;
+        close(notice_socket);
+        return -1;
+    }
+
+    if(listen(notice_socket, 1) == -1) { 
+        cerr << "传输套接字监听失败" << endl;
+        close(notice_socket);
+        return -1;
+    }
+
+    send(data_socket, &notice_port, sizeof(notice_port), 0);
+    
+    int transfer_conn = accept(notice_socket, nullptr, nullptr);
+    if(transfer_conn == -1) {
+        cerr << "传输连接接受失败" << endl;
+        close(notice_socket);
+        return -1;
+    }
+
+    cout << "传输套接字已建立，端口：" << notice_port << endl;
     return transfer_conn; 
 }
 //生成随机id
@@ -2157,37 +2419,42 @@ void TCP::remove_user(int data_socket)
         
     }
 }
-// void TCP:: checkTimeout() {
-//         auto now = chrono::system_clock::now();
-//         for (const auto& entry : client_last_online_time) {
-//             const string& client_id = entry.first;
-//             const auto& last_online_time = entry.second;
+  // 启动心跳监测线程
+void TCP ::startHeartbeatMonitor() {
+        monitoring_ = true;
+        monitor_thread_ = std::thread([this]() {
+            while (monitoring_) {
+                checkHeartbeats();
+                cout<<"检查心跳监测"<<endl;
+                std::this_thread::sleep_for(std::chrono::seconds(10)); // 每10秒检查一次
+            }
+        });
+        monitor_thread_.detach();
+    }
 
-           
-//             auto duration = chrono::duration_cast<chrono::minutes>(now - last_online_time);
-
-//             if (duration > timeout_limit) {
-//                 cout << "客户端 " << client_id << " 超时，最后在线时间：" 
-//                      << chrono::duration_cast<chrono::minutes>(now - last_online_time).count() << " 分钟前。" << endl;
-//                 // 处理超时客户端
-//                 handleTimeout(client_id);
-//             }
-//         }
-//     }
-
-//     // 处理超时的客户端
-// void TCP:: handleTimeout(const string& client_id) {
-//         cout << "处理客户端 " << client_id << " 的超时状态" << endl;
-//         client_last_online_time.erase(client_id); 
-//     }
-//     void TCP::updateLastOnlineTime(const string& client_id) {
-//     auto now = chrono::system_clock::now();
-//     client_last_online_time[client_id] = now;
-//      int id = std::stoi(client_id);
-//     remove_user(id);
-//     cout << "客户端 " << client_id << " 最后在线时间已更新为：" 
-//          << chrono::duration_cast<chrono::seconds>(now.time_since_epoch()).count() << " 秒。" << endl;
-// }
+    // 停止心跳监测
+void TCP::stopHeartbeatMonitor() {
+        monitoring_ = false;
+        if (monitor_thread_.joinable()) {
+            monitor_thread_.join();
+        }
+    }
+void TCP:: checkHeartbeats() {
+        std::unique_lock lock(heartbeat_mutex_);
+        auto now = std::chrono::steady_clock::now();
+        
+        for (auto it = client_last_heartbeat_.begin(); it != client_last_heartbeat_.end(); ) {
+            auto duration = now - it->second;
+            if (duration > std::chrono::minutes(1)) {
+                std::cout << "客户端 " << it->first << " 心跳超时，关闭连接" << std::endl;
+                close(it->first);
+                remove_user(it->first);  // 清理用户数据
+                it = client_last_heartbeat_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
 //关闭所有在线的客户端数据套接字
 TCP:: ~TCP(){
      std::cerr << "TCP对象被析构，socket=" << server_socket << std::endl;
@@ -2199,6 +2466,88 @@ TCP:: ~TCP(){
      //stopHeartbeatMonitor();
         close(server_socket);
     }
+void TCP:: notice_sender_thread(int notice_socket, atomic<bool>& running,DATA &redis_data,string user_id) {
+    while (running) {
+        this_thread::sleep_for(chrono::seconds(3)); 
+        if (notice_socket == -1) break;
+        string notice;
+        //notice = "有新消息";
+        notice_message(redis_data,user_id,notice);
+        //检查有没有新消息,传为message
+        if (!notice.empty()) {
+            // 2. 通过专用套接字发送
+            if (send(notice_socket, notice.c_str(), notice.size(), 0) <= 0) {
+                cerr << "通知发送失败，连接可能已断开" << endl;
+                break;
+            }
+        }
+        
+        
+        
+    }
+    close(notice_socket); // 退出时清理
+}
+void TCP::notice_message(DATA& redis_data, string user_id,string &notice) {
+        
+    vector<string> message;
+    vector<string> fromids;
+     vector<pair<string, string>> unreadFiles;      
+    redis_data.get_messages_2(user_id, fromids, message);
+    string a = redis_data.check_add_request_and_revise(user_id);
+    //redis_data.process_and_mark_unread_files(user_id, unreadFiles);
+    unordered_map<string, string> latest_messages;
+   // redis_data.get_unread_files(user_id, unreadFiles);
+    // if (!unreadFiles.empty()) {
+    //     for (const auto& file : unreadFiles) {
+    //         cout<<"用户"<<user_id<<"有新文件"<<endl;
+    //         notice += "有来自" + redis_data.get_username_by_id(file.first) + 
+    //                    "(" + file.first + ")" + "的新文件" + file.second + "\n";
+    //     }
+    // } 
+    if(!a.empty()&&a!="null")
+    {
+       // cout<<"a is"<<a<<endl;
+        notice += "\033[0;33m有新的好友申请，请前往查看\033[0m";
+    }
+    if (!message.empty()) {
+               // notice = "\033[0;33m有新消息\033[0m"; 
+    for (size_t i = 0; i < fromids.size(); i++) {
+         latest_messages[fromids[i]] = message[i];
+     } 
+    for (const auto& pair : latest_messages) {
+    notice += redis_data.get_username_by_id(pair.first) +  "(" + pair.first + ")" + ": " + pair.second + "\n";
+            }        
+    }
+        vector<string> group_ids = redis_data.get_groups_by_user(user_id);
+    if (!group_ids.empty()) {
+    for (const auto& group_id : group_ids) {
+        vector<pair<string, string>> applications= redis_data.get_group_applications(group_id);
+        //群申请
+         if (!applications.empty() && (redis_data.is_group_owner(group_id, user_id) || redis_data.is_admin(user_id, group_id))) {
+                for (const auto& app : applications) {
+                    notice += "群" +  redis_data.get_group_name(group_id) +  
+                              "(" + group_id + ")" + "有来自" +  redis_data.get_username_by_id(app.first) + 
+                              "(" + app.first + ")" + "的申请消息\n";
+                }
+            } 
+        //群文件
+        // vector<string> unread_file = redis_data.get_unread_file_group(group_id, user_id);
+        // if (!unread_file.empty()) {
+        // notice += "群" +  redis_data.get_group_name(group_id)  + 
+        //                    "(" + group_id + ")" + "有新文件\n";
+        //     }
+        //群消息
+        vector<pair<string, string>> group_messages = redis_data. get_unnotice_messages(user_id,group_id);;
+            if (!group_messages.empty()) {
+                notice += "群" + redis_data.get_group_name(group_id)  + 
+                           "(" + group_id + ")" + "有新消息\n";
+            }
+            
+    }
+    
+    }
+    }
+
 //登陆注册注销的函数
 void LOGIN::register_user(int data_socket,DATA &redis_data){
     char buffer1[1024] = {0};
@@ -2424,11 +2773,22 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
     
     FRI friends(this);
     GRO group(this);
+    //建立通知套接字
+    int notice_socket = new_notice_socket(data_socket);
+    atomic<bool> running(true);
+    
+   std::thread notice_thread(
+        [this, notice_socket, &running,&redis_data,data_socket]() {
+            this->notice_sender_thread(notice_socket, running,redis_data,this->find_user_id(data_socket));
+        }
+    );
+    notice_thread.detach();
+    //发送实时消息给客户端
+   // start_notice_thread(data_socket,redis_data,find_user_id(data_socket));
     string type,to_id,from_id,message;
     recived_message(redis_data,find_user_id(data_socket),data_socket);
     while(1)
     {
-        //recived_message(redis_data,find_user_id(data_socket),data_socket);
         if(!rec_m(type,from_id,to_id,message,data_socket))
         {
             break;
@@ -2444,6 +2804,7 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         }else if(type  == "quit")
         {
             cout<<"接收到命令：退出登陆"<<endl;
+            running = false;
             remove_user(data_socket);
            // close(data_socket);
             break;
@@ -2603,6 +2964,7 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         }
      }
  }
+
 void FRI::accept_file(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data) {
     vector<string> result;
     string response;
@@ -2758,7 +3120,7 @@ void TCP::recived_message(DATA &redis_data, string user_id, int data_socket) {
         message += "有新的好友申请\n";
     }
     
-    // 有没有未读文件
+    //有没有未读文件
     vector<pair<string, string>> unreadFiles;
     redis_data.get_unread_files(user_id, unreadFiles);
     if (!unreadFiles.empty()) {
@@ -2794,8 +3156,8 @@ void TCP::recived_message(DATA &redis_data, string user_id, int data_socket) {
             }
         }
     }
-    
-    send(data_socket, message.c_str(), message.size(), 0);
+    send_m(data_socket,"other",message);
+    //send(data_socket, message.c_str(), message.size(), 0);
 }
 
 void FRI::send_file(TCP &client, int data_socket, string from_id, string to_id, string message, DATA &redis_data) {

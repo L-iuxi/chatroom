@@ -64,11 +64,13 @@ class DATA{
     bool is_friend(string to_id, string from_id);//检查两人是否为好友
     bool check_dealed_request(string from_id,string to_id,string type);//检查好友申请是否已经被处理过
     bool check_add_friend_request_duplicata(string to_id,string from_id);//检查to_id是否已经向from_id发送过申请
+    string check_add_request_and_revise(string to_id);
    bool remove_friends_request(string from_id, string to_id,string message,string status);
     //bool check_recived_recover(string from_id, string type);
     bool check_recived_recover(string from_id, string type, string& data);
     //把发送的消息存储到消息表中
     bool add_message_log(string from_id,string to_id,string m);
+    bool process_and_mark_unread_files(string to_id, vector<pair<string, string>>& result);
     //从消息列表中获取fromid和message
     bool get_messages( const string& toid,vector<string>& fromids,vector<string>& messages);
     bool get_messages_2( const string& toid,vector<string>& fromids,vector<string>& messages); 
@@ -96,11 +98,13 @@ class DATA{
     bool remove_group_member(string group_id, string member_id);//从群成员列表里面移除某人
     vector<pair<string, string>> get_unread_applications(string group_id);
     bool apply_to_group(string applicant_id, string group_id,string message);
-    
+    vector<pair<string, string>> get_group_applications(string group_id);
     bool check_group_status(string applicant_id, string group_id, string status); //检查群聊申请状态是否为status
     bool revise_group_status(string applicant_id, string group_id, string status);//修改群聊申请状态
     bool set_last_read_time(string user_id,string group_id,string timestamp);//设置最后已读时间
+    bool set_last_notified_time(const string& user_id, const string& group_id, const string& timestamp);//设置最后通知时间
     vector<pair<string, string>> get_unread_messages(string user_id, string group_id) ;//获取未读信息
+    vector<pair<string, string>> get_unnotice_messages(string user_id, string group_id);//获取未通知的消息
     bool add_group_message(string from_id, string message, string group_id, string timestamp);//添加消息
     vector<tuple<string, string, string>> get_read_messages(string user_id, string group_id) ;//获取已读历史消息
     bool add_file_to_unread_list(string group_id,string from_id,string filename);//把文件添加到群所有成员未读列表
@@ -120,6 +124,8 @@ class TCP{
     int server_socket;
     char buffer[1024];
     Threadpool pool;
+     std::mutex redis_mutex_;  // 保护Redis数据访问
+    std::mutex notice_mutex_;
     public:
     
     TCP();//创建服务器套接字
@@ -133,6 +139,8 @@ class TCP{
     mutable std::shared_mutex heartbeat_mutex_;
     std::atomic<bool> monitoring_{false};
     std::thread monitor_thread_;
+    std::atomic<bool> running_{true}; 
+    std::thread notice_thread_;
     
     string find_user_id(int socket);
     void recived_message(DATA &redis_data,string user_id,int data_socket);
@@ -148,44 +156,13 @@ class TCP{
         std::unique_lock lock(heartbeat_mutex_);
         client_last_heartbeat_[client_socket] = std::chrono::steady_clock::now();
     }
-
-    // 启动心跳监测线程
-    void startHeartbeatMonitor() {
-        monitoring_ = true;
-        monitor_thread_ = std::thread([this]() {
-            while (monitoring_) {
-                checkHeartbeats();
-                cout<<"检查心跳监测"<<endl;
-                std::this_thread::sleep_for(std::chrono::seconds(10)); // 每10秒检查一次
-            }
-        });
-        monitor_thread_.detach();
-    }
-
-    // 停止心跳监测
-    void stopHeartbeatMonitor() {
-        monitoring_ = false;
-        if (monitor_thread_.joinable()) {
-            monitor_thread_.join();
-        }
-    }
-    void checkHeartbeats() {
-        std::unique_lock lock(heartbeat_mutex_);
-        auto now = std::chrono::steady_clock::now();
-        
-        for (auto it = client_last_heartbeat_.begin(); it != client_last_heartbeat_.end(); ) {
-            auto duration = now - it->second;
-            if (duration > std::chrono::minutes(1)) {
-                std::cout << "客户端 " << it->first << " 心跳超时，关闭连接" << std::endl;
-                close(it->first);
-                remove_user(it->first);  // 清理用户数据
-                it = client_last_heartbeat_.erase(it);
-            } else {
-                ++it;
-            }
-        }
-    }
-   
+    void startHeartbeatMonitor();
+    void stopHeartbeatMonitor();
+    void checkHeartbeats();
+   // void notice_sender_thread(int notice_socket, atomic<bool>& running) ;
+    int new_notice_socket(int data_socket);
+    void notice_sender_thread(int notice_socket, atomic<bool>& running,DATA &redis_data,string user_id);
+    void notice_message(DATA& redis_data,string user_id,string &notice);
 };
 class LOGIN{
    private:
