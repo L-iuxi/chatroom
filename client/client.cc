@@ -67,7 +67,7 @@ void TCP::send_m(string type, string from_sb, string to_sb, string message) {
 
 // 接收消息
 bool TCP::rec_m(string &type, string &message) {
-    vector<char> buffer;       // 静态缓冲区保存未处理数据
+   static vector<char> buffer;       // 静态缓冲区保存未处理数据
     static size_t expected_len = 0;   // 当前期望接收的消息长度
     static bool reading_header = true; // 当前是否正在读取消息头
 
@@ -80,61 +80,74 @@ bool TCP::rec_m(string &type, string &message) {
         if (bytes <= 0) {
             if (bytes == 0) {
                 heartbeat_received = false;
-                cout << "与服务器连接已断开" << endl;
+               // cout << "[DEBUG] 与服务器连接已断开 (recv返回0)" << endl;
                 close(data_socket);
+            } else {
+                cerr << "[DEBUG] recv错误: " << strerror(errno) << endl;
             }
             return false;
         }
         
         buffer.insert(buffer.end(), header_buf, header_buf + bytes);
+        //cout << "[DEBUG] 收到头部分数据(" << bytes << "字节): "
+           //  << hexdump(header_buf, bytes) << endl;
       
         if (buffer.size() < sizeof(uint32_t)) {
+            //cout << "[DEBUG] 头数据不完整，继续接收..." << endl;
             return false;
         }
         
         uint32_t len;
         memcpy(&len, buffer.data(), sizeof(len));
         expected_len = ntohl(len);
+        //cout << "[DEBUG] 解析到消息长度: " << expected_len << "字节" << endl;
         buffer.clear(); 
         reading_header = false;
     }
 
     // 读取消息体
-    if (!reading_header && buffer.size() < expected_len) {
-        size_t remaining = expected_len - buffer.size();
-        vector<char> temp_buf(min(remaining, (size_t)4096)); // 每次最多读4K
-        
-        ssize_t bytes = recv(data_socket, temp_buf.data(), temp_buf.size(), 0);
-        if (bytes <= 0) {
-            if (bytes == 0) {
-                heartbeat_received = false;
-                cout << "与服务器连接已断开" << endl;
-                close(data_socket);
-            }
-            return false;
-        }
-        
-        buffer.insert(buffer.end(), temp_buf.begin(), temp_buf.begin() + bytes);
-        
-        // 如果还没收完完整消息，返回继续接收
-        if (buffer.size() < expected_len) {
-            return false;
-        }
-
+    // 在接收消息体部分修改为：
+if (!reading_header && buffer.size() < expected_len) {
+    size_t remaining = expected_len - buffer.size();
+    vector<char> temp_buf(remaining); // 直接分配剩余需要的空间
+    
+    ssize_t bytes = recv(data_socket, temp_buf.data(), temp_buf.size(), 0);
+    if (bytes <= 0) {
+        // 错误处理...
     }
+    
+    buffer.insert(buffer.end(), temp_buf.begin(), temp_buf.begin() + bytes);
+   // cout << "[DEBUG] 收到消息体(" << bytes << "/" << remaining << "字节)\n";
+
+    if (buffer.size() < expected_len) {
+        return false; // 继续接收
+    }
+}
 
     // 完整消息已接收，开始解析
     try {
-         if(buffer.empty()) {
+        if(buffer.empty()) {
             throw runtime_error("接收到的数据为空");
         }
 
-        auto parsed = json::parse(string(buffer.begin(), buffer.end()));
+        // 打印原始二进制数据
+        //cout << "[DEBUG] 完整消息(" << buffer.size() << "字节):\n"
+             //<< hexdump(buffer.data(), buffer.size()) << endl;
+
+        // 打印字符串形式（可能包含不可见字符）
+        string raw_msg(buffer.begin(), buffer.end());
+       // cout << "[DEBUG] 消息文本形式:\n" << raw_msg << endl;
+
+        auto parsed = json::parse(raw_msg);
         type = parsed["type"];
         message = parsed["message"];
-       // cout << "接收到数据: " << message << endl;
+        //cout << "[INFO] 成功解析消息 type=" << type 
+            // << " message=" << message << endl;
+
+        // 处理剩余数据（粘包情况）
         if (buffer.size() > expected_len) {
             vector<char> remaining(buffer.begin() + expected_len, buffer.end());
+           // cout << "[DEBUG] 发现粘包数据(" << remaining.size() << "字节)" << endl;
             buffer = std::move(remaining);
         } else {
             buffer.clear();
@@ -144,11 +157,27 @@ bool TCP::rec_m(string &type, string &message) {
         
         return true;
     } catch (const json::parse_error& e) {
+        cerr << "[ERROR] JSON解析失败: " << e.what() << endl;
+        cerr << "[DEBUG] 错误数据(" << buffer.size() << "字节):\n"
+             << hexdump(buffer.data(), buffer.size()) << endl;
         buffer.clear();
         expected_len = 0;
         reading_header = true;
-        throw runtime_error("JSON解析失败: " + string(e.what()));
+        return false;
     }
+}
+
+// 辅助函数：二进制数据转十六进制输出
+string hexdump(const char* data, size_t len) {
+    static const char* hex = "0123456789ABCDEF";
+    string output;
+    for (size_t i = 0; i < len; ++i) {
+        output += hex[(data[i] >> 4) & 0xF];
+        output += hex[data[i] & 0xF];
+        output += ' ';
+        if ((i + 1) % 16 == 0) output += '\n';
+    }
+    return output;
 }
 void TCP:: heartbeat()
 {
@@ -363,7 +392,7 @@ bool LOGIN::login_user(TCP& client){
     }
     return false;
  }
-void TCP::recv_server(int data_socket)
+void TCP::recv_server_(int data_socket)
     {
         string message,type;
         rec_m(type,message);
@@ -416,7 +445,6 @@ void TCP::notice_receiver_thread() {
                 } else {
                     std::cerr << "通知接收错误: " << strerror(errno) << std::endl;
                 }
-                std::this_thread::sleep_for(std::chrono::seconds(1));
                 continue;
             }else{
                 cout<<buffer<<endl;
@@ -433,7 +461,7 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
     //开始接收线程
     client.connect_notice_socket();
     //只作为离线消息接受一次
-    client.recv_server(client.data_socket);
+    client.recv_server_(client.data_socket);
     GRO group;
     while(1)
     {
@@ -772,7 +800,9 @@ void FRI:: manage_friends(TCP &client,LOGIN &login)
         cout<<"当前操作：退出"<<endl;
        
         return;
-    
+        default:  
+            cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
+            break;
         break;
     }   
     if(command == -1||heartbeat_received == false)
@@ -841,12 +871,13 @@ void FRI ::receive_log(TCP& client,string from_id,string to_id)
 
     while(chat_active.load())
     {
-    string type = "new_message";
-    string message = "0";
+    string type;
+    string message;
     
     string buffer; 
     if (!chat_active.load()) break; 
     client.rec_m(type,buffer);
+    
     //cout<<"111"<<endl;
     if (!chat_active.load()) break; 
    
@@ -880,7 +911,7 @@ void FRI:: open_block(TCP &client,LOGIN &login,string to_id)
     
     string buffer; 
     client.rec_m(type,buffer);
-  
+    // std::this_thread::sleep_for(std::chrono::seconds(15));
         if(buffer == "你与该用户还不是好友")
         {
         cout<<buffer<<endl;
@@ -1417,7 +1448,9 @@ void GRO::open_group_owner(TCP &client,LOGIN &login,int &m,string group_id)
         cout<<"当前操作：退出"<<endl;
     
         return;
-    
+        default:  
+            cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
+            break;
         break;
     }   
     if(command == -1)
@@ -1572,7 +1605,9 @@ void GRO::open_group_admin(TCP &client,LOGIN &login,int &m,string group_id)
         cout<<"当前操作：退出"<<endl;
      
         return;
-    
+        default:  
+            cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
+            break;
         break;
         if(m == 1)
         {
@@ -1635,7 +1670,9 @@ void GRO::open_group_member(TCP &client,LOGIN &login,int &m,string group_id)
         cout<<"当前操作：退出"<<endl;
        
         return;
-    
+        default:  
+            cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
+            break;
         break;
     }   
 
@@ -1763,11 +1800,6 @@ void GRO::manage_member(TCP &client,LOGIN &login,string group_id)
             break;
         }else if(command == -1)
         {
-            string from_id = login.getuser_id();
-       string type = "nothing";
-        string to_id = "0";
-        string message = "0"; 
-        client.send_m(type,from_id,to_id,message);
         return;
             return;
         }
@@ -1904,11 +1936,7 @@ void GRO::send_file_group(TCP &client,LOGIN &login,string group_id)
     // 检查文件是否存在
     ifstream test_file(filepath);
     if (!test_file) {
-        cerr << "\033[31m文件 " << filepath << " 不存在\033[0m" << endl;
-       string type = "nothing";
-        string to_id = "0";
-        string message = "0"; 
-        client.send_m(type,from_id,to_id,message);
+        cout<<"文件不存在"<<endl;
         return;
     }
     test_file.close();
@@ -2045,7 +2073,7 @@ void GRO::accept_file_group(TCP &client, LOGIN &login,string group_id) {
 int main(int argc, char* argv[]){
 
 if (argc != 2) {
-    cerr << "Usage:./Client 10.30.0.142\n";
+    cerr << "./Client 10.30.0.142\n";
     return 1;
 }
 const char* SERVER_IP = argv[1]; // 从命令行参数获取服务器IP

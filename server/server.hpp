@@ -133,8 +133,9 @@ class TCP{
     Threadpool pool;
      std::mutex redis_mutex_;  // 保护Redis数据访问
     std::mutex notice_mutex_;
+     
     public:
-    
+     static constexpr size_t MAX_JSON_SIZE = (10 * 1024 * 1024);
     TCP();//创建服务器套接字
     ~TCP();
     void start(DATA &redis_data);//与客户端进行连接
@@ -150,7 +151,7 @@ class TCP{
     std::thread notice_thread_;
     
     string find_user_id(int socket);
-    void recived_message(DATA &redis_data,string user_id,int data_socket);
+    void recived_messages(DATA &redis_data,string user_id,int data_socket);
     bool  rec_m(string &type,string &from_id,string &to_id,string &message,int data_socket);
    void send_m(int data_socket,string type,string message);
     int generate_port();
@@ -270,3 +271,4 @@ string delete_line(const std::string& message);
 string delete_space(const std::string& message);
 string getCurrentTimestamp();
 void parse_json_message(const char* data, size_t len, string& type, string& from_id, string& to_id, string& message);
+bool is_valid_json(const string& json_str);

@@ -2079,9 +2079,14 @@ void TCP::send_m(int data_socket, string type, string message) {
     // 写入数据
     memcpy(send_buf.data() + sizeof(len), serialized_message.data(), serialized_message.size());
     
-    if (send(data_socket, send_buf.data(), send_buf.size(), 0) != send_buf.size()) {
-        cerr << "服务器发送失败" << endl;
+    ssize_t a =send(data_socket, send_buf.data(), send_buf.size(), 0) 
+        if (a == -1) {
+        if (errno == EWOULDBLOCK || errno == EAGAIN) {
+            continue;
+        } 
     }
+
+    
     //cout<<"已发送"<<serialized_message<<endl;
 }
 
@@ -2090,64 +2095,84 @@ bool TCP::rec_m(string &type, string &from_id, string &to_id, string &message, i
     static vector<char> buffer;  // 保存未处理的数据
     static size_t expected_len = 0;  // 期望接收的消息体长度
     
-    // 先读取长度头
+    // 1. 读取长度头
     if (expected_len == 0) {
         uint32_t len;
-        ssize_t bytes = recv(data_socket, &len, sizeof(len), 0);
+        ssize_t bytes = recv(data_socket, &len, sizeof(len), MSG_WAITALL);  // 阻塞直到收到完整长度头
         
-        if (bytes == 0) 
-        {
-            cout<<"断开连接"<<endl;
+        if (bytes == 0) {
+            cout << "连接已关闭" << endl;
             return false;
         }
         if (bytes != sizeof(len)) {
-            // 可能只收到了部分长度头，保存到buffer待下次处理
-            buffer.insert(buffer.end(), (char*)&len, (char*)&len + bytes);
-            return false;
+            throw runtime_error("接收长度头失败: " + to_string(bytes) + "字节");
         }
         
         expected_len = ntohl(len);
+        if (expected_len > MAX_JSON_SIZE) {  // 添加安全限制
+            throw runtime_error("消息长度超过限制");
+        }
         buffer.reserve(expected_len);
     }
     
-    // 接收消息
+    // 2. 接收消息体
     if (buffer.size() < expected_len) {
         size_t remaining = expected_len - buffer.size();
-        vector<char> temp_buf(min(remaining, (size_t)BUFFER_SIZE));
+        vector<char> temp_buf(remaining);  // 精确分配剩余需要的大小
         
-        ssize_t bytes = recv(data_socket, temp_buf.data(), temp_buf.size(), 0);
-        if (bytes <= 0) throw runtime_error("接收失败");
-        
-        buffer.insert(buffer.end(), temp_buf.begin(), temp_buf.begin() + bytes);
-        
-        if (buffer.size() < expected_len) {
-            return false;  //小于长度
-        }
-    }
-    
-    // 解析消息
-    try {
-        auto parsed = json::parse(string(buffer.begin(), buffer.end()));
-        type = parsed["type"];
-        from_id = parsed["from_id"];
-        to_id = parsed["to_id"];
-        message = parsed["message"];
-        
-        // 处理缓冲区
-        if (buffer.size() > expected_len) {
-            vector<char> remaining(buffer.begin() + expected_len, buffer.end());
-            buffer = std::move(remaining);
-            expected_len = 0;  
-        } else {
+        ssize_t bytes = recv(data_socket, temp_buf.data(), temp_buf.size(), MSG_WAITALL);
+        if (bytes <= 0) {
             buffer.clear();
             expected_len = 0;
+            throw runtime_error("接收消息体失败");
         }
-    } catch (const json::parse_error& e) {
+        
+        buffer.insert(buffer.end(), temp_buf.begin(), temp_buf.begin() + bytes);
+    }
+    
+    // 3. 解析JSON（添加严格验证）
+    try {
+        // 验证是否为完整JSON
+        string json_str(buffer.begin(), buffer.end());
+        if (!is_valid_json(json_str)) {  // 自定义验证函数
+            throw runtime_error("接收的JSON不完整");
+        }
+        
+        auto parsed = json::parse(json_str);
+        
+        // 强制字段检查
+        if (!parsed.contains("type") || !parsed.contains("from_id") || 
+            !parsed.contains("to_id") || !parsed.contains("message")) {
+            throw runtime_error("JSON缺少必需字段");
+        }
+        
+        type = parsed["type"].get<string>();
+        from_id = parsed["from_id"].get<string>();
+        to_id = parsed["to_id"].get<string>();
+        message = parsed["message"].get<string>();
+        
+    } catch (const json::exception& e) {
+        // 打印调试信息
+        cerr << "JSON解析错误: " << e.what() << endl;
+        cerr << "原始数据(" << buffer.size() << "字节): " 
+             << string(buffer.begin(), buffer.end()) << endl;
+        
         buffer.clear();
         expected_len = 0;
         throw runtime_error("JSON解析失败: " + string(e.what()));
     }
+    
+    // 4. 清理缓冲区
+    buffer.clear();
+    expected_len = 0;
     return true;
+}
+
+// 辅助函数：简单验证JSON完整性
+bool is_valid_json(const string& json_str) {
+    size_t open_braces = count(json_str.begin(), json_str.end(), '{');
+    size_t close_braces = count(json_str.begin(), json_str.end(), '}');
+    return open_braces > 0 && open_braces == close_braces;
 }
 //创建传输文件套接字
 int TCP::new_transfer_socket(int data_socket) {
@@ -2791,7 +2816,7 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
     add_notice_socket(find_user_id(data_socket),notice_socket);
 
     string type,to_id,from_id,message;
-    recived_message(redis_data,find_user_id(data_socket),data_socket);
+    recived_messages(redis_data,find_user_id(data_socket),data_socket);
     while(1)
     {
         if(!rec_m(type,from_id,to_id,message,data_socket))
@@ -2841,8 +2866,8 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
            // recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "nothing")
         {
-            recived_message(redis_data,find_user_id(data_socket),data_socket);
-            //continue;
+            //recived_message(redis_data,find_user_id(data_socket),data_socket);
+            continue;
         }else if(type == "friend_open_block")
         {
             cout<<"接收到命令，打开聊天框"<<endl;
@@ -2928,7 +2953,7 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         }else if(type == "delete_member")
         {
             group.delete_member(*this,data_socket,from_id,to_id,message,redis_data);
-             recived_message(redis_data,find_user_id(data_socket),data_socket);
+            // recived_message(redis_data,find_user_id(data_socket),data_socket);
             //group.quit_group(data_socket,from_id,to_id,message,redis_data);
         }else if(type == "send_add_group")
         {
@@ -2940,7 +2965,7 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         }else if(type ==  "approve_group_requests")
         {
             group.add_group_member(*this,data_socket,from_id,to_id,message,redis_data);
-             recived_message(redis_data,find_user_id(data_socket),data_socket);
+             //recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "refuse_group_requests")
         {
              group.refuse_group_member(*this,data_socket,from_id,to_id,message,redis_data);
@@ -3099,7 +3124,7 @@ void FRI::is_friends(TCP &client,int data_socket, string from_id, string to_id, 
     client.send_m(data_socket,"other",a);
 }
 //给登陆的用户一直发送实时消息通知
-void TCP::recived_message(DATA &redis_data, string user_id, int data_socket) {
+void TCP::recived_messages(DATA &redis_data, string user_id, int data_socket) {
     string type = "accept";
     string data1;
     vector<string> fromids;
@@ -3423,6 +3448,7 @@ bool FRI::delete_chat_pair(string first) {
 //打开聊天框，发送历史记录
 void FRI::open_block(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data)
 {
+     store_chat_Pair(from_id, to_id);
     vector<string> message1;
     vector<string> message2;
     vector<string> messages;
@@ -3454,7 +3480,7 @@ void FRI::open_block(TCP &client,int data_socket,string from_id,string to_id,DAT
     if(message1.size() == 0 && message2.size() == 0)
     {
         recover = "暂无聊天记录";
-        store_chat_Pair(from_id, to_id);
+       
         client.send_m(data_socket,"other",recover);
         return;
     }
@@ -3495,9 +3521,9 @@ void FRI::open_block(TCP &client,int data_socket,string from_id,string to_id,DAT
     }
     
     client.send_m(data_socket,"other",recover);
-    store_chat_Pair(from_id, to_id);
     
-    //cout<<"发送成功"<<endl;
+    //cout<<recover<<endl;
+    //cout<<"发>送成功"<<endl;
    
 }
 //选择添加好友操作
@@ -3671,9 +3697,10 @@ void FRI:: send_message(TCP &client,int data_socket,string from_id,string to_id,
         int b_socket =client.find_socket(to_id);
         string notice = "对方正在聊天框内和你聊天";
         cout<<notice<<endl;
-        string type = redis_data.get_username_by_id(to_id);
+        string type = redis_data.get_username_by_id(from_id);
         //client.send_m(a_socket,"other", notice);
         client.send_m(b_socket,type, message);
+        cout<<"发送了消息"<<message<<endl;
         redis_data.add_message_log(from_id,to_id,message);
         return;
         

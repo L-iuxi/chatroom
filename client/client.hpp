@@ -73,7 +73,7 @@ class TCP{
     close(data_socket);
     close(notice_socket);
    }
-   void recv_server(int data_socket);
+   void recv_server_(int data_socket);
    void pause_heartbeat()
 {
     std::lock_guard<std::mutex> lock(mtx);  // 确保线程安全
@@ -166,3 +166,4 @@ class FRI{
     //int client_socket,string from_user_id
     // void make_choice(TCP &client,LOGIN &login);
 };
+string hexdump(const char* data, size_t len);
