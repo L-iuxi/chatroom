@@ -453,17 +453,17 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
          cout<<"当前操作：私聊某好友"<<endl;
         //open_block(client,login);
         choose_command(client,login);
-        client.recv_server(client.data_socket);
+      //  client.recv_server(client.data_socket);
         break;
         case 2:
         cout<<"当前操作：管理好友"<<endl;
         manage_friends(client,login);
-         client.recv_server(client.data_socket);
+        // client.recv_server(client.data_socket);
         break;
         case 3:
         cout<<"当前操作:查看好友列表"<<endl;
         see_all_friends(client,login.getuser_id());
-        client.recv_server(client.data_socket);
+       // client.recv_server(client.data_socket);
         break;
         case 4:
         cout<<"当前操作：查看群聊"<<endl;
@@ -527,7 +527,7 @@ void FRI:: choose_command(TCP &client, LOGIN &login)
         case 1:
         cout<<"当前操作：发送消息"<<endl;
         open_block(client,login,to_id);
-        client.recv_server(client.data_socket);
+        //client.recv_server(client.data_socket);
         break;
         case 2:
         cout<<"当前操作：发送文件"<<endl;
@@ -637,18 +637,12 @@ void FRI::accept_file(TCP &client, LOGIN &login,string to_id) {
     }
     outfile.close();
 
-    //cout<<"total_rec"<<total_received<<endl;
-    if(total_received > 0) {
+    cout<<"total_rec"<<total_received<<endl;
+    
         cout << "\033[32m文件下载成功: " << " (" << total_received << " bytes)\033[0m" << endl;
         string ack = "SUCCESS";
-                send(client.transfer_socket, ack.c_str(), ack.size(), 0);
-    } else {
-       // remove(save_path.c_str());
-        cout << "\033[31m文件下载失败\033[0m" << endl;
-         cerr << "记录失败，已删除文件" << endl;
-                string err = "ERROR";
-                send(client.transfer_socket, err.c_str(), err.size(), 0);
-    }
+        send(client.transfer_socket, ack.c_str(), ack.size(), 0);
+     
     close(client.transfer_socket);
     this->is_transfer = false;
     
@@ -874,8 +868,8 @@ void FRI ::receive_log(TCP& client,string from_id,string to_id)
          chat_active = false;
          break;
     }
-    cout<<"\033[1;36m["<<type<<"\033[0m]"<<buffer<<endl;
-        cout<<buffer<<endl;
+    cout<<"\033[1;36m["<<type<<"]\033[0m"<<buffer<<endl;
+       // cout<<buffer<<endl;
         
  }
 //cout<<"我也结束了"<<endl;

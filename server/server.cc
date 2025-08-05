@@ -2816,12 +2816,12 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
     int notice_socket = new_notice_socket(data_socket);
     atomic<bool> running(true);
     
-   std::thread notice_thread(
-        [this, notice_socket, &running,&redis_data,data_socket]() {
-            this->notice_sender_thread(notice_socket, running,redis_data,this->find_user_id(data_socket));
-        }
-    );
-    notice_thread.detach();
+//    std::thread notice_thread(
+//         [this, notice_socket, &running,&redis_data,data_socket]() {
+//             this->notice_sender_thread(notice_socket, running,redis_data,this->find_user_id(data_socket));
+//         }
+//     );
+    // notice_thread.detach();
     //发送实时消息给客户端
    // start_notice_thread(data_socket,redis_data,find_user_id(data_socket));
     string type,to_id,from_id,message;
@@ -2861,7 +2861,7 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         {
             cout<<"接收到命令:查看所有好友"<<endl;
             friends.see_all_friends(*this,data_socket,from_id,redis_data);
-            recived_message(redis_data,find_user_id(data_socket),data_socket);
+           // recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "refuse_friends_requests")
         {
             cout<<"接收到命令:拒绝好友申请"<<endl;
@@ -2871,7 +2871,7 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         {
            cout<<"接收到命令：发送消息"<<endl;
            friends.send_message(*this,data_socket,from_id,to_id,message,redis_data);
-            recived_message(redis_data,find_user_id(data_socket),data_socket);
+           // recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "nothing")
         {
             recived_message(redis_data,find_user_id(data_socket),data_socket);
