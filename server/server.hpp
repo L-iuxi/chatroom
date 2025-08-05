@@ -34,13 +34,17 @@
 #define BUFFER_SIZE 1024
 #define PASV_PORT_MIN  1024
 #define PASV_PORT_MAX 65535
-
+#define RED_TEXT(text)      ("\033[1;31m" + std::string(text) + "\033[0m")
+#define YELLOW_TEXT(text)  ("\033[1;33m" + std::string(text) + "\033[0m")
+#define GREEN_TEXT(text)     ("\033[1;32m" + std::string(text) + "\033[0m")
 
 using namespace std;
 
 using json = nlohmann::json;
 std::mutex redis_mutex;
 unordered_map<string,string> chat_pairs;
+unordered_map<string,string> group_pairs;
+unordered_map<string, int> notice_user;
   struct FriendRequest {
     string from_id;
     string message;
@@ -164,8 +168,15 @@ class TCP{
     void checkHeartbeats();
    // void notice_sender_thread(int notice_socket, atomic<bool>& running) ;
     int new_notice_socket(int data_socket);
-    void notice_sender_thread(int notice_socket, atomic<bool>& running,DATA &redis_data,string user_id);
-    void notice_message(DATA& redis_data,string user_id,string &notice);
+
+    //登陆成功创建完noticesocket之后加入表
+    bool add_notice_socket(string userid, int sockfd);
+    //下线之后从表里面移除通知套接字
+    void remove_user_socket(string userid);
+    int get_noticesocket_by_userid(string userid);
+    string  get_userid_by_noticesocket(int sockfd);
+    //发送实时消息
+    void send_notice(string from_id,string to_id,string message);
 };
 class LOGIN{
    private:
@@ -249,6 +260,11 @@ class GRO{
     void send_file_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
     void accept_file_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
     void delete_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
+    bool check_chat(string a,string b); 
+    bool delete_chat_pair(string first); 
+    void printChatPairsTable();
+    void store_chat_Pair(string first, string second);
+   void quit_chat(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
 };
 string delete_line(const std::string& message);
 string delete_space(const std::string& message);

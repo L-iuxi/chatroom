@@ -655,12 +655,18 @@ bool DATA::see_all_other_message(string from_id,string to_id,vector<string>& mes
         freeReplyObject(reply);
         return false;
     }
-    for (size_t i = 0; i < reply->elements; i++) {
+    const int MAX_MESSAGES = 50;
+    int message_count = 0;
+    for (size_t i = 0; i < reply->elements && message_count < MAX_MESSAGES; i++) {
         std::string key = reply->element[i]->str;
         
         //  获取该键下的所有消息
-        redisReply* msg_reply = (redisReply*)redisCommand(c, "LRANGE %s 0 -1", key.c_str());
+        redisReply* msg_reply = (redisReply*)redisCommand(c, "LRANGE %s %d %d", 
+            key.c_str(), 
+            0, 
+            MAX_MESSAGES - message_count - 1);
         if (!msg_reply || msg_reply->type == REDIS_REPLY_ERROR) {
+             message_count += msg_reply->elements;
             freeReplyObject(msg_reply);
             continue;
         }
@@ -702,11 +708,18 @@ bool DATA::see_all_my_message(string from_id,string to_id,vector<string>& messag
         freeReplyObject(reply);
         return false;
     }
-    for (size_t i = 0; i < reply->elements; i++) {
+     const int MAX_MESSAGES = 50;
+    int remaining = MAX_MESSAGES;
+    for (size_t i = 0; i < reply->elements&& remaining > 0; i++) {
         std::string key = reply->element[i]->str;
         
         //  获取该键下的所有消息
-        redisReply* msg_reply = (redisReply*)redisCommand(c, "LRANGE %s 0 -1", key.c_str());
+          redisReply* msg_reply = (redisReply*)redisCommand(
+            c, "LRANGE %s %d %d", 
+            key.c_str(), 
+            0, 
+            remaining - 1  // 确保总数不超过MAX_MESSAGES
+        );
         if (!msg_reply || msg_reply->type == REDIS_REPLY_ERROR) {
             freeReplyObject(msg_reply);
             continue;
@@ -728,7 +741,7 @@ bool DATA::see_all_my_message(string from_id,string to_id,vector<string>& messag
                    string m=delete_space(content);
                     string formatted_message =  m+ "|" +timestamp;
                     messages.push_back(formatted_message);
-                
+                    remaining--;
             }
         }
 
@@ -2505,88 +2518,49 @@ TCP:: ~TCP(){
      //stopHeartbeatMonitor();
         close(server_socket);
     }
-void TCP:: notice_sender_thread(int notice_socket, atomic<bool>& running,DATA &redis_data,string user_id) {
-    while (running) {
-        this_thread::sleep_for(chrono::seconds(2)); 
-        if (notice_socket == -1) break;
-        string notice;
-        //notice = "有新消息";
-        notice_message(redis_data,user_id,notice);
-        //检查有没有新消息,传为message
-        if (!notice.empty()) {
-            // 2. 通过专用套接字发送
-            if (send(notice_socket, notice.c_str(), notice.size(), 0) <= 0) {
-                cerr << "通知发送失败，连接可能已断开" << endl;
-                break;
-            }
-        }
-        
-        
-        
-    }
-    close(notice_socket); // 退出时清理
-}
-void TCP::notice_message(DATA& redis_data, string user_id,string &notice) {
-        
-    vector<string> message;
-    vector<string> fromids;
-     vector<pair<string, string>> unreadFiles;      
-    redis_data.get_messages_2(user_id, fromids, message);
-    string a = redis_data.check_add_request_and_revise(user_id);
-    redis_data.process_and_mark_unread_files(user_id, unreadFiles);
-    unordered_map<string, string> latest_messages;
-//    redis_data.get_unread_files(user_id, unreadFiles);
-    if (!unreadFiles.empty()) {
-        for (const auto& file : unreadFiles) {
-            cout<<"用户"<<user_id<<"有新文件"<<endl;
-            notice += "有来自" + redis_data.get_username_by_id(file.first) + 
-                       "(" + file.first + ")" + "的新文件" + file.second + "\n";
-        }
-    } 
-    if(!a.empty()&&a!="null")
-    {
-       // cout<<"a is"<<a<<endl;
-        notice += "\033[0;33m有新的好友申请，请前往查看\033[0m";
-    }
-    if (!message.empty()) {
-               // notice = "\033[0;33m有新消息\033[0m"; 
-    for (size_t i = 0; i < fromids.size(); i++) {
-         latest_messages[fromids[i]] = message[i];
-     } 
-    for (const auto& pair : latest_messages) {
-    notice += "有一条新消息："+redis_data.get_username_by_id(pair.first) +  "(" + pair.first + ")" + ": " + pair.second + "\n";
-            }        
-    }
-        vector<string> group_ids = redis_data.get_groups_by_user(user_id);
-    if (!group_ids.empty()) {
-    for (const auto& group_id : group_ids) {
-        vector<pair<string, string>> applications= redis_data.get_group_applications(group_id);
-        //群申请
-         if (!applications.empty() && (redis_data.is_group_owner(group_id, user_id) || redis_data.is_admin(user_id, group_id))) {
-                for (const auto& app : applications) {
-                    notice += "群" +  redis_data.get_group_name(group_id) +  
-                              "(" + group_id + ")" + "有来自" +  redis_data.get_username_by_id(app.first) + 
-                              "(" + app.first + ")" + "的申请消息\n";
-                }
-            } 
-        //群文件
-        // vector<string> unread_file = redis_data.get_unread_file_group(group_id, user_id);
-        // if (!unread_file.empty()) {
-        // notice += "群" +  redis_data.get_group_name(group_id)  + 
-        //                    "(" + group_id + ")" + "有新文件\n";
-        //     }
-        //群消息
-        vector<pair<string, string>> group_messages = redis_data. get_unnotice_messages(user_id,group_id);;
-            if (!group_messages.empty()) {
-                notice += "群" + redis_data.get_group_name(group_id)  + 
-                           "(" + group_id + ")" + "有新消息\n";
-            }
-            
-    }
-    
-    }
+
+//登陆成功创建完noticesocket之后加入表
+bool TCP::add_notice_socket(string userid, int sockfd) {
+        auto [it, inserted] = notice_user.emplace(userid, sockfd);
+        return inserted;
     }
 
+//下线之后从表里面移除通知套接字
+void TCP:: remove_user_socket(string userid) {
+        notice_user.erase(userid);
+    }
+
+// 通过用户ID获取套接字
+int TCP:: get_noticesocket_by_userid(string userid) {
+        auto it = notice_user.find(userid);
+        return (it != notice_user.end()) ? it->second : -1;
+    }
+
+
+// 通过套接字获取用户ID（需要反向映射）
+string TCP::get_userid_by_noticesocket(int sockfd) {
+        for (const auto& [uid, fd] : notice_user) {
+            if (fd == sockfd) {
+                return uid;
+            }
+        }
+        return "";
+    }
+//发送实时消息
+void TCP::send_notice(string from_id,string to_id,string message)
+{
+    int socket =get_noticesocket_by_userid(to_id);
+    if(socket == -1)
+    {
+        cout<<"该用户不在线"<<endl;
+        return;
+    }
+    if(send(socket,message.c_str(),message.size(),0))
+    {
+        cout<<"发送消息成功"<<endl;
+    }
+
+}
 //登陆注册注销的函数
 void LOGIN::register_user(int data_socket,DATA &redis_data){
     char buffer1[1024] = {0};
@@ -2814,16 +2788,8 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
     GRO group(this);
     //建立通知套接字
     int notice_socket = new_notice_socket(data_socket);
-    atomic<bool> running(true);
-    
-//    std::thread notice_thread(
-//         [this, notice_socket, &running,&redis_data,data_socket]() {
-//             this->notice_sender_thread(notice_socket, running,redis_data,this->find_user_id(data_socket));
-//         }
-//     );
-    // notice_thread.detach();
-    //发送实时消息给客户端
-   // start_notice_thread(data_socket,redis_data,find_user_id(data_socket));
+    add_notice_socket(find_user_id(data_socket),notice_socket);
+
     string type,to_id,from_id,message;
     recived_message(redis_data,find_user_id(data_socket),data_socket);
     while(1)
@@ -2843,7 +2809,8 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         }else if(type  == "quit")
         {
             cout<<"接收到命令：退出登陆"<<endl;
-            running = false;
+           // running_ = false;
+            remove_user_socket(find_user_id(data_socket));
             remove_user(data_socket);
            // close(data_socket);
             break;
@@ -2932,16 +2899,16 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         }else if(type == "get_all_my_group")
         {   cout<<"收到命令：查看所有群聊"<<endl;
             group.see_all_group(*this,data_socket,from_id,to_id,message,redis_data);
-            recived_message(redis_data,find_user_id(data_socket),data_socket);
+            //recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "see_all_member")
         {
             cout<<"收到命令：查看群所有成员"<<endl;
             group.see_all_member(*this,data_socket,from_id,to_id,message,redis_data);
-             recived_message(redis_data,find_user_id(data_socket),data_socket);
+            // recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "add_admin")
         {
             group.add_admin(*this,data_socket,from_id,to_id,message,redis_data);
-             recived_message(redis_data,find_user_id(data_socket),data_socket);
+            // recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "open_group")
         {
             group.open_group(*this,data_socket,from_id,to_id,message,redis_data);
@@ -2949,15 +2916,15 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         }else if(type == "quit_group")
         {
             group.quit_group(*this,data_socket,from_id,to_id,message,redis_data);
-            recived_message(redis_data,find_user_id(data_socket),data_socket);
+           // recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "delete_admin")
         {
               group.delete_admin(*this,data_socket,from_id,to_id,message,redis_data);
-               recived_message(redis_data,find_user_id(data_socket),data_socket);
+              // recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "add_member")
         {
              group.add_member(*this,data_socket,from_id,to_id,message,redis_data);
-              recived_message(redis_data,find_user_id(data_socket),data_socket);
+              //recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "delete_member")
         {
             group.delete_member(*this,data_socket,from_id,to_id,message,redis_data);
@@ -2977,7 +2944,7 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         }else if(type == "refuse_group_requests")
         {
              group.refuse_group_member(*this,data_socket,from_id,to_id,message,redis_data);
-              recived_message(redis_data,find_user_id(data_socket),data_socket);
+              //recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type ==  "send_message_group")
         {
             group.add_group_message(*this,data_socket,from_id,to_id,message,redis_data);
@@ -2991,16 +2958,21 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         {
             cout<<"收到命令：上传群文件"<<endl;
             group.send_file_group(*this,data_socket,from_id,to_id,message,redis_data);
-             recived_message(redis_data,find_user_id(data_socket),data_socket);
+             //recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "accept_file_group")
         {
             cout<<"收到命令：下载群文件"<<endl;
              group.accept_file_group(*this,data_socket,from_id,to_id,message,redis_data);
-              recived_message(redis_data,find_user_id(data_socket),data_socket);
+              //recived_message(redis_data,find_user_id(data_socket),data_socket);
         }else if(type == "heart")
         {
             cout<<"接收到客户端心跳监测"<<endl;
              updateHeartbeat(data_socket);
+        }else if(type == "quit_chat_group")
+        {
+            cout<<"收到命令：退出群聊天"<<endl;
+             group.quit_chat(*this,data_socket,from_id,to_id,message,redis_data);
+             
         }
         else{
             cout<<"接收到命令：未知命令"<<endl;
@@ -3281,6 +3253,8 @@ void FRI::send_file(TCP &client, int data_socket, string from_id, string to_id, 
             if (redis_ok) {
                 cout << "文件接收成功: " << filename << endl;
                 string ack = "SUCCESS";
+                string notice =YELLOW_TEXT("有来自"+from_id+"的新文件") ;
+                client.send_notice(from_id,to_id,notice);
                 send(transfer_socket, ack.c_str(), ack.size(), 0);
             } else {
                 remove(filename.c_str()); // Redis 失败，删除文件
@@ -3364,6 +3338,8 @@ void FRI::cancel_shield_friend(TCP &client,int data_socket,string from_id,string
         return;
     }
     redis_data.add_friends(to_id,from_id);
+    string notice = GREEN_TEXT("用户" + from_id + "已解除对你的屏蔽!");
+    client.send_notice(from_id,to_id,notice);
     const char*recover = "已成功解除屏蔽好友";
     cout<<recover<<endl;
      client.send_m(data_socket,"other",recover);
@@ -3385,16 +3361,18 @@ void FRI::shield_friend(TCP &client,int data_socket,string from_id,string to_id,
     }
     
     redis_data.rdelete_friend(to_id,from_id);
+    string notice = RED_TEXT("用户" + from_id + "已将你屏蔽!");
+    client.send_notice(from_id,to_id,notice);
     string recover = "已成功屏蔽好友";
     //cout<<recover<<endl;
    client.send_m(data_socket,"other",recover);
 }
 void FRI::store_chat_Pair(string first, string second) {
-    chat_pairs[first] = second;
+    group_pairs[first] = second;
     std::cout << "已存储: \"" << first << "\" -> \"" << second << "\"" << std::endl;
 }
 void FRI::printChatPairsTable() {
-    if(chat_pairs.empty()) {
+    if(group_pairs.empty()) {
         cout << "聊天关系表为空" << endl;
         return;
     }
@@ -3405,7 +3383,7 @@ void FRI::printChatPairsTable() {
     
     // 使用set避免重复打印双向关系
     set<pair<string, string>> printed;
-    for(const auto& pair : chat_pairs) {
+    for(const auto& pair : group_pairs) {
         if(printed.find({pair.second, pair.first}) == printed.end()) {
             cout << "| " << setw(15) << left << pair.first 
                  << " | " << setw(15) << pair.second << " |" << endl;
@@ -3417,14 +3395,14 @@ void FRI::printChatPairsTable() {
 // 检查a对应的b是否也对应a
 bool FRI:: check_chat(string a,string b) {
    //  printChatPairsTable();
-    auto it_a = chat_pairs.find(a);
-    if (it_a == chat_pairs.end() || it_a->second != b) {
+    auto it_a = group_pairs.find(a);
+    if (it_a == group_pairs.end() || it_a->second != b) {
         cout << "键 \"" << a << "\" 不指向值 \"" << b << "\"" << std::endl;
         return false;
     }
     
-    auto it_b = chat_pairs.find(b);
-    if (it_b == chat_pairs.end() || it_b->second != a) {
+    auto it_b = group_pairs.find(b);
+    if (it_b == group_pairs.end() || it_b->second != a) {
         cout << "键 \"" << b << "\" 不指向值 \"" << a << "\"" << std::endl;
         return false;
     }
@@ -3433,9 +3411,9 @@ bool FRI:: check_chat(string a,string b) {
     return true;
 }
 bool FRI::delete_chat_pair(string first) {
-    auto it = chat_pairs.find(first);
-    if (it != chat_pairs.end()) {
-        chat_pairs.erase(it);
+    auto it = group_pairs.find(first);
+    if (it != group_pairs.end()) {
+        group_pairs.erase(it);
         std::cout << "已删除键为 \"" << first << "\" 的键值对" << std::endl;
         return true;
     }
@@ -3529,20 +3507,20 @@ void FRI::send_add_request(TCP &client,int data_socket,string to_id,string from_
     string t = redis_data.get_username_by_id(to_id);
     if(t == "")
     {
-        string recover = "要添加的用户不存在";
+        string recover = RED_TEXT( "要添加的用户不存在");
         cout<<recover<<endl;
         client.send_m(data_socket,"other",recover);
         return;
     }
-    if(redis_data.is_friend(to_id,from_id) &&!redis_data.is_friend(from_id,to_id))
+    if(redis_data.is_friend(to_id,from_id) &&redis_data.is_friend(from_id,to_id))
     {
-        string a= "你与该用户已经是好友了";
-         client.send_m(data_socket,"other",a);
+        string a = RED_TEXT("你与该用户已经是好友了");
+        client.send_m(data_socket,"other",a);
         return;
     }
     if(redis_data.check_add_friend_request_duplicata(to_id,from_id))
     {
-        string recover = "已向该用户发送过好友申请，请不要重复发送";
+        string recover = RED_TEXT("已向该用户发送过好友申请，请不要重复发送");
         client.send_m(data_socket,"other",recover);
         return;
     }
@@ -3555,7 +3533,9 @@ void FRI::send_add_request(TCP &client,int data_socket,string to_id,string from_
         return;
     }
 
-    string recover = "已成功发送好友申请";
+    string recover =  GREEN_TEXT("已成功发送好友申请");
+    string notice =YELLOW_TEXT("收到来自用户"+from_id+"的好友申请") ;
+    client.send_notice(from_id,to_id,notice);
     cout<<recover<<endl;
     client.send_m(data_socket,"other",recover);
     
@@ -3596,14 +3576,14 @@ void FRI::add_friend(TCP &client,int data_socket,string to_id,string from_id,DAT
     if(redis_data.check_dealed_request(to_id,from_id,status))
     {
         
-         string d = "已同意过该好友申请，请勿重复处理";
+        string d=RED_TEXT("已同意过该好友申请，请勿重复处理");
         client.send_m(data_socket,"other",d);
         return; 
     }
     string other_status = "refuse";
     if(redis_data.check_dealed_request(to_id,from_id,other_status))
     {
-         string d = "已拒绝过该好友申请，请勿重复处理";
+        string d=RED_TEXT("已拒绝过该好友申请，请勿重复处理");
         client.send_m(data_socket,"other",d);
         return;  
     }
@@ -3613,19 +3593,13 @@ void FRI::add_friend(TCP &client,int data_socket,string to_id,string from_id,DAT
     //status ="accept";
     if(redis_data.revise_status(to_id,from_id,status))
     {
-        //cout<<"111"<<endl;
-        //初始化好友消息列表
-        //redis_data.add_message_log(from_id,to_id);
-        //string message = "you are friends now ovo!";
-        // if(!redis_data.add_message_log(from_id,to_id,message))
-        // {
-        //     cout<<"失败"<<endl;
-
-        // }
-        string d = "添加好友成功！";
-        cout<<d<<endl;
-      client.send_m(data_socket,"other",d);
-        return;
+        
+    string d=GREEN_TEXT("添加好友成功！");
+    cout<<d<<endl;
+    string notice =YELLOW_TEXT(from_id+"已同意你的好友申请") ;
+    client.send_notice(from_id,to_id,notice);
+    client.send_m(data_socket,"other",d);
+    return;
     }
     string d = "添加好友失败！";
    client.send_m(data_socket,"other",d);
@@ -3660,20 +3634,23 @@ void FRI::refuse_friend_request(TCP &client,int data_socket,string to_id,string 
     string status ="accept";
     if(redis_data.check_dealed_request(to_id,from_id,status))
     {
-        string d = "已同意过该好友申请，请勿重复处理";
+        string d=RED_TEXT("已同意过该好友申请，请勿重复处理");
         client.send_m(data_socket,"other",d);
+        return;
     }
     string other_status = "refuse";
     if(redis_data.check_dealed_request(to_id,from_id,other_status))
     {
-         string d = "已拒绝过该好友申请，请勿重复处理";
-       client.send_m(data_socket,"other",d);
+        string d=RED_TEXT("已拒绝过该好友申请，请勿重复处理");
+        client.send_m(data_socket,"other",d);
         return; 
     }
     //string status ="refuse";
     if(redis_data.revise_status(to_id,from_id,other_status))
     {
         const char* d = "已拒绝该好友申请";
+        string notice =YELLOW_TEXT(from_id+"已拒绝你的好友申请") ;
+        client.send_notice(from_id,to_id,notice);
         client.send_m(data_socket,"other",d);
         return;
     }
@@ -3682,6 +3659,12 @@ void FRI::refuse_friend_request(TCP &client,int data_socket,string to_id,string 
 }
 //向好友发送消息
 void FRI:: send_message(TCP &client,int data_socket,string from_id,string to_id,string message,DATA &redis_data){
+   if(redis_data.is_friend(from_id,to_id) &&!redis_data.is_friend(to_id,from_id))
+   {
+    string notice = RED_TEXT("你已被对方屏蔽!");
+    client.send_m(data_socket,"other", notice);
+    return;
+   }
     if(check_chat(from_id,to_id))
     {
         int a_socket =client.find_socket(from_id);
@@ -3693,16 +3676,15 @@ void FRI:: send_message(TCP &client,int data_socket,string from_id,string to_id,
         client.send_m(b_socket,type, message);
         redis_data.add_message_log(from_id,to_id,message);
         return;
-        //先给ab发一个确认，告诉两个客户端要同时开始聊天了
+        
     }
         
   if(redis_data.add_message_log_unread(from_id,to_id,message))
            {
-            string a= "消息发送成功";
-           //send(data_socket,a.c_str(),a.size(),0);
+            string notice =YELLOW_TEXT("有一条来自"+from_id+"的新消息") ;
+            client.send_notice(from_id,to_id,notice);
            }else{
             string a= "消息发送失败";
-           // send(data_socket,a.c_str(),a.size(),0);
            }
 }
 void FRI:: quit_chat(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data)
@@ -3916,7 +3898,7 @@ void GRO::quit_group(TCP &client,int data_socket, string from_id, string to_id, 
     {
         if(redis_data.delete_group(message)&&redis_data.clear_group_files(message)&&redis_data.clear_group_request(message)&&redis_data.clear_group_messages(message))
         {
-        string response = "已解散群聊";
+         string response = "已解散群聊";
          client.send_m(data_socket,"other", response);
         return;
         }
@@ -3928,8 +3910,8 @@ void GRO::quit_group(TCP &client,int data_socket, string from_id, string to_id, 
     }
     if(redis_data.remove_group_member(message,from_id))
     {
-        string response = "已成功退出";
-         client.send_m(data_socket,"other", response);
+        string response = RED_TEXT( "已成功退出");
+        client.send_m(data_socket,"other", response);
         return;
     }
 }
@@ -3937,13 +3919,13 @@ void GRO::delete_admin(TCP &client,int data_socket, string from_id, string to_id
 {
     if(!redis_data.is_in_group(message,to_id))
     {
-     string response = "该用户不在该群聊内\n";
+       string response = RED_TEXT( "该用户不在该群聊内\n");
        client.send_m(data_socket,"other", response);
         return;
     }
     if(!redis_data.is_group_owner(message,from_id))
     {
-       string response = "只有群主可以移除管理员\n";
+       string response = RED_TEXT( "只有群主可以移除管理员");
         client.send_m(data_socket,"other", response);
         return;
     }
@@ -3951,12 +3933,13 @@ void GRO::delete_admin(TCP &client,int data_socket, string from_id, string to_id
     {
         redis_data.remove_group_admin(message,to_id);
     }else{
-        string response = "该用户不是管理员";
+        string response = RED_TEXT( "你不是管理员");
        client.send_m(data_socket,"other", response);
         return;
     }
-    
-        string response = "已成功移除";
+    string a =RED_TEXT("你已被踢出群聊"+message);
+        client.send_m(data_socket,"other", a);
+        string response = GREEN_TEXT("已成功移除");
       client.send_m(data_socket,"other", response);
         
     
@@ -3967,20 +3950,20 @@ void GRO::add_member(TCP &client,int data_socket, string from_id, string to_id, 
      string username =redis_data.get_username_by_id(to_id);
     if(username == "")
     {
-    //cout << user_id<<"用户不存在于数据库中" << endl;
-    string a= "用户不存在";
+    //cout << user_id<<"用户不存在于数据库中" << endl
+    string a =RED_TEXT("用户不存在");
     client.send_m(data_socket,"other", a);
     return ;
     }
     if(redis_data.is_in_group(message,to_id))
     {
-        string response = "用户已在该群聊内";
+        string response =RED_TEXT("用户已在该群聊内");
         client.send_m(data_socket,"other", response);
         return;
     }
     if(!redis_data.is_friend(to_id,from_id) &&!redis_data.is_friend(from_id,to_id))
     {
-        string a= "你与该用户不是好友";
+        string a =RED_TEXT("你与该用户不是好友");
         client.send_m(data_socket,"other", a);
         cout<<a<<endl;
         return;
@@ -3992,19 +3975,21 @@ void GRO::add_member(TCP &client,int data_socket, string from_id, string to_id, 
             return;
  }
     string response = "已成功邀请";
+    string notice =GREEN_TEXT("你的好友"+from_id+"已邀请你进入群"+message) ;
+        client.send_notice(from_id,to_id,notice);
   client.send_m(data_socket,"other", response);
 }
 void GRO::send_add_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data)
 {
    if(!redis_data.is_group_exists(to_id))
     {
-        string response = "该群不存在";
+        string response =RED_TEXT("该群不存在");
         client.send_m(data_socket,"other", response);
        return;
     }
      if(redis_data.is_in_group(to_id,from_id))
     {
-        string response = "你已在该群聊内";
+        string response =RED_TEXT("你已在该群聊内");
          client.send_m(data_socket,"other", response);
         return;
     }
@@ -4038,29 +4023,78 @@ void GRO::add_group_member(TCP &client,int data_socket, string from_id, string t
     string other_status = "refuse"; 
     if(redis_data.is_in_group(message,to_id))
     {
-        string response = "用户已在该群聊内";
+         string response =RED_TEXT("用户已在该群聊内");
         client.send_m(data_socket,"other", response);
         return;
     }
      if(redis_data.check_group_status(to_id, message, status))
     {
-        string response = "该申请已被同意，请勿重复处理";
+        string response =RED_TEXT("该申请已被拒同意，请勿重复处理");
        client.send_m(data_socket,"other", response);
         return;
     }
     if(redis_data.check_group_status(to_id, message, other_status))
     {
-        string response = "该申请已被拒绝，请勿重复处理";
+        string response =RED_TEXT("该申请已被拒绝，请勿重复处理") ;
         client.send_m(data_socket,"other", response);
         return;
     }
     if(redis_data.revise_group_status(to_id,message,status))
     {
         redis_data.add_group_member(message,to_id);
+        string notice =GREEN_TEXT("你已被批准加入群"+message) ;
+        client.send_notice(from_id,to_id,notice);
         string response = "已同意该申请";
        client.send_m(data_socket,"other", response);
        
     }
+}
+void GRO::store_chat_Pair(string first, string second) {
+    group_pairs[first] = second;
+    std::cout << "已存储: \"" << first << "\" -> \"" << second << "\"" << std::endl;
+}
+void GRO::printChatPairsTable() {
+    if(group_pairs.empty()) {
+        cout << "聊天关系表为空" << endl;
+        return;
+    }
+
+    cout << "\n========== 聊天关系表 ==========" << endl;
+    cout << "| " << setw(15) << left << "用户A" << " | " << setw(15) << "用户B" << " |" << endl;
+    cout << "|-----------------|-----------------|" << endl;
+    
+    // 使用set避免重复打印双向关系
+    set<pair<string, string>> printed;
+    for(const auto& pair : group_pairs) {
+        if(printed.find({pair.second, pair.first}) == printed.end()) {
+            cout << "| " << setw(15) << left << pair.first 
+                 << " | " << setw(15) << pair.second << " |" << endl;
+            printed.insert({pair.first, pair.second});
+        }
+    }
+    cout << "===================================" << endl;
+}
+// 检查a对应的b是否也对应a
+bool GRO:: check_chat(string a,string b) {
+     printChatPairsTable();
+    auto it_a = group_pairs.find(a);
+    if (it_a == group_pairs.end() || it_a->second != b) {
+        //cout << "键 \"" << a << "\" 不指向值 \"" << b << "\"" << std::endl;
+        return false;
+    }
+    
+   cout << "确认对应: \"" << a << "\" ↔ \"" << b << "\"" << std::endl;
+    return true;
+}
+bool GRO::delete_chat_pair(string first) {
+    auto it = group_pairs.find(first);
+    if (it != group_pairs.end()) {
+        group_pairs.erase(it);
+        std::cout << "已删除键为 \"" << first << "\" 的键值对" << std::endl;
+        return true;
+    }
+    std::cout << "未找到键为 \"" << first << "\" 的键值对" << std::endl;
+    return false;
 }
 void GRO::refuse_group_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data)
 {
@@ -4094,8 +4128,31 @@ void GRO::refuse_group_member(TCP &client,int data_socket, string from_id, strin
 }
 void GRO::add_group_message(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data)
 {
+    //判断一下再不在群聊，不在发不在群聊内
+    
     string time = getCurrentTimestamp();
     //发送消息的时候还在群聊里面，更新一边最后时间
+    
+    vector<string> members = redis_data.get_all_members(to_id);
+    for(int i = 0;i < members.size();i++)
+    {
+        if(check_chat(members[i],to_id)&&members[i] != from_id)
+        {
+        int b_socket =client.find_socket(members[i]);
+        string notice = "对方正在聊天框内和你聊天";
+        cout<<notice<<endl;
+        string type = redis_data.get_username_by_id(members[i]);
+        //client.send_m(a_socket,"other", notice);
+        client.send_m(b_socket,type, message);
+            //此时用户点开了群聊界面,直接给他发过去
+        }else if(from_id != members[i])
+    {
+        string notice =YELLOW_TEXT("有来自群"+to_id+"的新消息") ;
+        client.send_notice(from_id,members[i],notice);
+        //此时用户在线，给他一个通知
+    }   
+    }
+  
     if(redis_data.add_group_message(from_id,message, to_id,time)&&redis_data.set_last_read_time(from_id,to_id,time))
     {
          string a= "消息发送成功";
@@ -4106,32 +4163,11 @@ void GRO::receive_group_message(TCP &client,int data_socket, string from_id, str
 {
     //每次调用接收函数的时候也在群聊里面，更新最后在线时间
 
-     if(!redis_data.is_in_group(to_id,from_id))
-    {
-        string response = "你已被踢出群聊";
-        client.send_m(data_socket,"other", response);
-        return;
-    }else{
-    vector<pair<string, string>> messages = redis_data.get_unread_messages(from_id, to_id);
-    string result;
-         if(messages.size() == 0)
-    {
-        string result= "没有新消息";
-        client.send_m(data_socket,"other", result);
-        return;
-         //如果没有接收到消息，就不更新时间戳
-    }
-    for (const auto& [fromid, content] : messages) {
-    result += "[" + fromid + "] " + content + "\n";
-    }
-     //cout << result << endl;
-    client.send_m(data_socket,"other", result);
-    }
-    string time = getCurrentTimestamp();
-    redis_data.set_last_read_time(from_id,to_id,time);
+    // redis_data.set_last_read_time(from_id,to_id,time);
 }
 void GRO::open_group_block(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data)
 {
+    store_chat_Pair(from_id,to_id);
     vector<tuple<string, string, string>> messages = redis_data.get_read_messages(from_id, to_id);
     if(messages.size() == 0)
     {
@@ -4147,7 +4183,7 @@ void GRO::open_group_block(TCP &client,int data_socket, string from_id, string t
     
     stringstream ss;
     for (const auto& [fromid, message, timestamp] : messages) {
-        ss << "[" <<redis_data.get_username_by_id( fromid )<< "] " << fromid << ": " << message << "\n";
+        ss << "[" <<redis_data.get_username_by_id( fromid )<< "] " << ": " << message << "\n";
     }
 
     string result = ss.str();
@@ -4155,8 +4191,15 @@ void GRO::open_group_block(TCP &client,int data_socket, string from_id, string t
         result.pop_back();  // 移除最后一个换行符
     }
     client.send_m(data_socket,"other",result);
+    
     //cout<<"已发送"<<result<<endl;
 }
+void GRO::quit_chat(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data)
+{
+    delete_chat_pair(from_id);
+    string notice = "quit"; 
+    client.send_m(data_socket,"other", notice);
+} 
 void GRO::send_file_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data)
 {
      int transfer_socket = client.new_transfer_socket(data_socket);

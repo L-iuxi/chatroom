@@ -432,6 +432,7 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
 
     //开始接收线程
     client.connect_notice_socket();
+    //只作为离线消息接受一次
     client.recv_server(client.data_socket);
     GRO group;
     while(1)
@@ -451,14 +452,13 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
     switch(command){
         case 1:
          cout<<"当前操作：私聊某好友"<<endl;
-        //open_block(client,login);
         choose_command(client,login);
-      //  client.recv_server(client.data_socket);
+      
         break;
         case 2:
         cout<<"当前操作：管理好友"<<endl;
         manage_friends(client,login);
-        // client.recv_server(client.data_socket);
+       
         break;
         case 3:
         cout<<"当前操作:查看好友列表"<<endl;
@@ -468,17 +468,17 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
         case 4:
         cout<<"当前操作：查看群聊"<<endl;
         group.see_all_group(client,login); 
-        client.recv_server(client.data_socket);
+        //client.recv_server(client.data_socket);
         break;
         case 5:
         cout<<"当前操作：群聊管理"<<endl;
         manage_group(group,client,login);
-         client.recv_server(client.data_socket);
+       //  client.recv_server(client.data_socket);
         break;
           case 6:
          cout<<"当前操作：进入群聊"<<endl;
          open_group(group,client,login);
-         client.recv_server(client.data_socket);
+         //client.recv_server(client.data_socket);
         break;
         
         case -1:
@@ -527,7 +527,6 @@ void FRI:: choose_command(TCP &client, LOGIN &login)
         case 1:
         cout<<"当前操作：发送消息"<<endl;
         open_block(client,login,to_id);
-        //client.recv_server(client.data_socket);
         break;
         case 2:
         cout<<"当前操作：发送文件"<<endl;
@@ -537,7 +536,6 @@ void FRI:: choose_command(TCP &client, LOGIN &login)
             break;
         } 
         send_file_to_friends(client, login, to_id);
-       // client.recv_server(client.data_socket);
         break;
         case 3:
         cout<<"当前操作：接收文件"<<endl;
@@ -547,7 +545,6 @@ void FRI:: choose_command(TCP &client, LOGIN &login)
             break;
         } 
         accept_file(client,login,to_id);
-        //client.recv_server(client.data_socket);
         break;
         case -1:
         break;
@@ -557,18 +554,12 @@ void FRI:: choose_command(TCP &client, LOGIN &login)
     }
     if(a == -1)
     {
-    string type = "nothing";
-    string message = "0";
-    string from_id = login.getuser_id();
-    client.send_m(type,from_id,to_id,message);
     break;
     }
  }
 }
 void FRI::accept_file(TCP &client, LOGIN &login,string to_id) {
-    // string to_id;
-    // cout << "请输入好友ID: ";
-    // cin >> to_id;
+   
     //暂停心跳监测
     client.pause_heartbeat();
     const string download_dir = "../download";
@@ -779,11 +770,7 @@ void FRI:: manage_friends(TCP &client,LOGIN &login)
         break;
         case -1:
         cout<<"当前操作：退出"<<endl;
-        string from_id = login.getuser_id();
-       string type = "nothing";
-        string to_id = "0";
-        string message = "0"; 
-        client.send_m(type,from_id,to_id,message);
+       
         return;
     
         break;
@@ -862,11 +849,15 @@ void FRI ::receive_log(TCP& client,string from_id,string to_id)
     client.rec_m(type,buffer);
     //cout<<"111"<<endl;
     if (!chat_active.load()) break; 
-    //buffer =拉黑以及buffer = 退出聊天
+   
     if(buffer == "quit")
     {
          chat_active = false;
          break;
+    }else if(buffer == "你已被对方屏蔽!")
+    {
+        chat_active = false;
+        break;
     }
     cout<<"\033[1;36m["<<type<<"]\033[0m"<<buffer<<endl;
        // cout<<buffer<<endl;
@@ -893,10 +884,6 @@ void FRI:: open_block(TCP &client,LOGIN &login,string to_id)
         if(buffer == "你与该用户还不是好友")
         {
         cout<<buffer<<endl;
-
-        type = "nothing";
-        message = "0"; 
-        client.send_m(type,from_id,to_id,message);
         return;
         }
         cout<<"-------------------------"<<endl;
@@ -911,9 +898,7 @@ void FRI:: open_block(TCP &client,LOGIN &login,string to_id)
     receive_thread.join();
     send_thread.join();
 
-    type = "nothing";
-    message = "0"; 
-    client.send_m(type,from_id,to_id,message);
+    
 }
 
 //添加好友函数
@@ -1084,11 +1069,6 @@ void FRI:: check_add_friends_request(TCP &client,LOGIN &login){
             cout<<buffer2<<endl;
         }else if(command == -1)
         {
-        string from_id = login.getuser_id();
-       string type = "nothing";
-        string to_id = "0";
-        string message = "0"; 
-        client.send_m(type,from_id,to_id,message);
         return;
         }
 }
@@ -1338,20 +1318,11 @@ void FRI::open_group(GRO &group,TCP &client,LOGIN &login)
         if(buffer == "该群不存在")
         {
             cout<<"该群不存在"<<endl;
-             string from_id = login.getuser_id();
-       string type = "nothing";
-        string to_id = "0";
-        string message = "0"; 
-        client.send_m(type,from_id,to_id,message);
             return;
         }else if(buffer == "你不在该群聊内")
         {
             cout <<"你不在该群聊内"<<endl;
-             string from_id = login.getuser_id();
-       string type = "nothing";
-        string to_id = "0";
-        string message = "0"; 
-        client.send_m(type,from_id,to_id,message);
+
             return;
         }else if(buffer =="群主")
         {
@@ -1387,7 +1358,7 @@ void GRO::open_group_owner(TCP &client,LOGIN &login,int &m,string group_id)
         case 1:
         cout<<"当前操作：在线聊天"<<endl;
         open_group_block(client,login,group_id);
-        client.recv_server(client.data_socket);
+        //client.recv_server(client.data_socket);
         break;
         case 2:
         cout<<"当前操作：发送文件"<<endl;
@@ -1397,12 +1368,12 @@ void GRO::open_group_owner(TCP &client,LOGIN &login,int &m,string group_id)
             break;
         } 
         send_file_group(client,login,group_id);
-        client.recv_server(client.data_socket);
+       // client.recv_server(client.data_socket);
         break;
          case 3:
         cout<<"当前操作：发送文件"<<endl;
         accept_file_group(client,login,group_id);
-        client.recv_server(client.data_socket);
+        //client.recv_server(client.data_socket);
         if(this->is_transfer)
         {
             cout<<"正在发送/接收文件...请等待当前文件处理完"<<endl;
@@ -1412,44 +1383,39 @@ void GRO::open_group_owner(TCP &client,LOGIN &login,int &m,string group_id)
         case 4:
         cout<<"当前操作：退出群聊"<<endl;
         quit_group(client,login,group_id,m);
-        client.recv_server(client.data_socket);
+       // client.recv_server(client.data_socket);
         if(m == 1)
         {
         string from_id = login.getuser_id();
        string type = "nothing";
         string to_id = "0";
         string message = "0"; 
-        client.send_m(type,from_id,to_id,message);
+        //client.send_m(type,from_id,to_id,message);
         }
         break;
         case 5:
         cout<<"当前操作：查看群成员"<<endl;
         see_all_members(client,login,group_id);
-        client.recv_server(client.data_socket);
+        //client.recv_server(client.data_socket);
         break;
         case 6:
         cout<<"当前操作：设置管理员"<<endl;
         manage_admin(client,login,group_id);
-         client.recv_server(client.data_socket);
+         ///client.recv_server(client.data_socket);
         break;
         case 7:
         cout<<"当前操作：管理成员"<<endl;
         manage_member(client,login,group_id);
-         client.recv_server(client.data_socket);
+         //client.recv_server(client.data_socket);
         break;
         case 8:
         cout<<"当前操作：查看申请"<<endl;
         see_add_group(client,login,group_id);
-         client.recv_server(client.data_socket);
+         //client.recv_server(client.data_socket);
         break;
         case -1:
         cout<<"当前操作：退出"<<endl;
-        m = 1;
-        string from_id = login.getuser_id();
-       string type = "nothing";
-        string to_id = "0";
-        string message = "0"; 
-        client.send_m(type,from_id,to_id,message);
+    
         return;
     
         break;
@@ -1494,9 +1460,8 @@ void GRO:: send_message_group(TCP &client,string from_id,string group_id)
 {
     //cin.ignore(numeric_limits<streamsize>::max(), '\n');
    
-        // 等待发送消息的信号
+    // 等待发送消息的信号
     while (group_active.load()) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));  // 避免占用过多CPU资源
         if (!group_active.load()) break;
     string message;
     string typ = "send_message_group";
@@ -1509,6 +1474,8 @@ void GRO:: send_message_group(TCP &client,string from_id,string group_id)
     if(message == "-1")
     {
        group_active = false;
+       typ = "quit_chat_group";
+        client.send_m(typ,from_id,to_id,message);
        //cout<<"退出"<<endl;
         break;
     }
@@ -1524,26 +1491,23 @@ void GRO::receive_group_message(TCP& client,string from_id,string group_id)
     string type = "receive_group_new";
     string message = "0";
     string to_id = group_id;
-    client.send_m(type,from_id,to_id,message);
+    // client.send_m(type,from_id,to_id,message);
     
     string buffer;
     client.rec_m(type,buffer);
     //cout<<"服务器无数据返回"<<endl;
-    chat_active = false;
-        if(buffer == "没有新消息")
-        {
-           // cout<<"该用户没有给你发新消息"<<endl;
-             this_thread::sleep_for(chrono::milliseconds(1500));
-             continue;
-         // break;
-        }else if(buffer == "你已被踢出群聊")
-        {
+    if(buffer == "quit")
+    {
+        group_active = false;
+        break;
+    }else if(buffer == "你不在群聊内")
+    {
              cout<<buffer<<endl;
             chat_active = false;
             //break;
-        }
+    }
         
-        cout<<"："<<buffer<<endl;
+       cout << "\033[1;36m[" << type << "]\033[0m" << buffer << endl;
     }
  
 //cout<<"我也结束了"<<endl;
@@ -1565,7 +1529,7 @@ void GRO::open_group_admin(TCP &client,LOGIN &login,int &m,string group_id)
         case 1:
         cout<<"当前操作：在线聊天"<<endl;
        open_group_block(client,login,group_id);
-        client.recv_server(client.data_socket);
+        //client.recv_server(client.data_socket);
         break;
         case 2:
         cout<<"当前操作：发送文件"<<endl;
@@ -1575,7 +1539,7 @@ void GRO::open_group_admin(TCP &client,LOGIN &login,int &m,string group_id)
             break;
         } 
         send_file_group(client,login,group_id);
-        client.recv_server(client.data_socket);
+       // client.recv_server(client.data_socket);
         break;
         case 3:
         cout<<"当前操作：接收文件"<<endl;
@@ -1586,32 +1550,27 @@ void GRO::open_group_admin(TCP &client,LOGIN &login,int &m,string group_id)
         } 
         accept_file_group(client,login,group_id);
         
-        client.recv_server(client.data_socket);
+        //client.recv_server(client.data_socket);
 
         break;
         case 4:
         cout<<"当前操作：退出群聊"<<endl;
         quit_group(client,login,group_id,m);
-         client.recv_server(client.data_socket);
+         //client.recv_server(client.data_socket);
         break;
         case 5:
         cout<<"当前操作：查看群成员"<<endl;
         see_all_members(client,login,group_id);
-         client.recv_server(client.data_socket);
+        // client.recv_server(client.data_socket);
         break;
         case 6:
         cout<<"当前操作：管理成员"<<endl;
         manage_member(client,login,group_id);
-         client.recv_server(client.data_socket);
+        // client.recv_server(client.data_socket);
         break;
         case -1:
         cout<<"当前操作：退出"<<endl;
-        m =1;
-        string from_id = login.getuser_id();
-       string type = "nothing";
-        string to_id = "0";
-        string message = "0"; 
-        client.send_m(type,from_id,to_id,message);
+     
         return;
     
         break;
@@ -1627,7 +1586,7 @@ void GRO::open_group_member(TCP &client,LOGIN &login,int &m,string group_id)
 
     int command = 0; 
     string b;
-    main_page_admin(login.getuser_id(),login.getusername());
+    main_page_member(login.getuser_id(),login.getusername());
    
     cin>>command;
     cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
@@ -1640,7 +1599,7 @@ void GRO::open_group_member(TCP &client,LOGIN &login,int &m,string group_id)
         case 1:
         cout<<"当前操作：在线聊天"<<endl;
        open_group_block(client,login,group_id);
-        client.recv_server(client.data_socket);
+       // client.recv_server(client.data_socket);
         break;
         case 2:
         cout<<"当前操作：发送文件"<<endl;
@@ -1650,7 +1609,7 @@ void GRO::open_group_member(TCP &client,LOGIN &login,int &m,string group_id)
             break;
         } 
         send_file_group(client,login,group_id);
-        client.recv_server(client.data_socket);
+        //client.recv_server(client.data_socket);
         break;
         case 3:
         cout<<"当前操作：接收文件"<<endl;
@@ -1660,26 +1619,21 @@ void GRO::open_group_member(TCP &client,LOGIN &login,int &m,string group_id)
             break;
         } 
         accept_file_group(client,login,group_id);
-        client.recv_server(client.data_socket);
+        //client.recv_server(client.data_socket);
         break;
         case 4:
         cout<<"当前操作：退出群聊"<<endl;
         quit_group(client,login,group_id,m);
-         client.recv_server(client.data_socket);
+        // client.recv_server(client.data_socket);
         break;
         case 5:
         cout<<"当前操作：查看群成员"<<endl;
         see_all_members(client,login,group_id);
-         client.recv_server(client.data_socket);
+        // client.recv_server(client.data_socket);
         break;
         case -1:
         cout<<"当前操作：退出"<<endl;
-        m =1;
-        string from_id = login.getuser_id();
-       string type = "nothing";
-        string to_id = "0";
-        string message = "0"; 
-        client.send_m(type,from_id,to_id,message);
+       
         return;
     
         break;
