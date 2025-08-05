@@ -2061,33 +2061,70 @@ bool DATA::clear_group_files( string group_id) {
     return true;
 }
 
-//发送序列化字符串
-void TCP::send_m(int data_socket, string type, string message) {
-    nlohmann::json j;
-    j["type"] = type;
-    j["message"] = message;
-    
-    string serialized_message = j.dump();
-    
-    // 准备发送缓冲区
-    vector<char> send_buf(sizeof(uint32_t) + serialized_message.size());
-    
-    // 写入长度前缀
-    uint32_t len = htonl(serialized_message.size());
-    memcpy(send_buf.data(), &len, sizeof(len));
-    
-    // 写入数据
-    memcpy(send_buf.data() + sizeof(len), serialized_message.data(), serialized_message.size());
-    
-    ssize_t a =send(data_socket, send_buf.data(), send_buf.size(), 0) 
-        if (a == -1) {
-        if (errno == EWOULDBLOCK || errno == EAGAIN) {
-            continue;
-        } 
-    }
 
-    
-    //cout<<"已发送"<<serialized_message<<endl;
+void TCP::send_m(int data_socket, string type, string message) {
+    try {
+        // 1. 构造JSON消息
+        nlohmann::json j;
+        j["type"] = type;
+        j["message"] = message;
+        
+        string serialized_message = j.dump();
+        
+        // 2. 准备发送缓冲区（长度前缀+数据）
+        vector<char> send_buf(sizeof(uint32_t) + serialized_message.size());
+        
+        // 写入长度前缀（网络字节序）
+        uint32_t len = htonl(serialized_message.size());
+        memcpy(send_buf.data(), &len, sizeof(len));
+        
+        // 写入数据
+        memcpy(send_buf.data() + sizeof(len), serialized_message.data(), serialized_message.size());
+        
+        // 3. 完整发送数据
+        size_t total_sent = 0;
+        const size_t total_to_send = send_buf.size();
+        const int max_retries = 3;
+        int retry_count = 0;
+        
+        while (total_sent < total_to_send && retry_count < max_retries) {
+            ssize_t sent = send(data_socket, 
+                              send_buf.data() + total_sent, 
+                              total_to_send - total_sent, 
+                              0);
+            
+            if (sent == -1) {
+                if (errno == EWOULDBLOCK || errno == EAGAIN) {
+                    // 缓冲区满，等待后重试
+                    // usleep(100000); // 等待100ms
+                    retry_count++;
+                    continue;
+                } else {
+                    // 其他错误
+                    perror("send() failed");
+                    throw std::runtime_error("Failed to send message");
+                }
+            }
+            
+            total_sent += sent;
+            retry_count = 0; // 重置重试计数
+            
+            // 调试信息
+            cout << "Sent " << sent << " bytes (" 
+                 << total_sent << "/" << total_to_send << ")" << endl;
+        }
+        
+        if (total_sent != total_to_send) {
+            throw std::runtime_error("Failed to send complete message");
+        }
+        
+        // 调试信息
+        cout << "Successfully sent message: " << message << endl;
+        
+    } catch (const std::exception& e) {
+        cerr << "Error in send_m: " << e.what() << endl;
+        throw; // 重新抛出异常
+    }
 }
 
 // 服务器接收
