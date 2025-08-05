@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <iomanip>
 #include <map>
+#include <set>
 #include <sys/stat.h>  // 添加这个头文件
 #include <unistd.h>
 #include <ctime>
@@ -39,6 +40,7 @@ using namespace std;
 
 using json = nlohmann::json;
 std::mutex redis_mutex;
+unordered_map<string,string> chat_pairs;
   struct FriendRequest {
     string from_id;
     string message;
@@ -74,6 +76,7 @@ class DATA{
     //从消息列表中获取fromid和message
     bool get_messages( const string& toid,vector<string>& fromids,vector<string>& messages);
     bool get_messages_2( const string& toid,vector<string>& fromids,vector<string>& messages); 
+    bool add_message_log_unread(string from_id,string to_id,string m);
     bool see_all_other_message(string from_id,string to_id,vector<string>& messages);
     bool see_all_my_message(string from_id,string to_id,vector<string>& messages);
     bool get_id_messages(const string& toid,const string& fromid, vector<string>& messages);
@@ -181,6 +184,7 @@ class LOGIN{
 class FRI{
      private:  
     TCP* server;
+    
     public:
     FRI(TCP* server_instance) {
         server = server_instance;
@@ -194,15 +198,20 @@ class FRI{
    void see_all_friends(TCP &client,int data_socket,string from_id,DATA &redis_data);//查询所有好友
    void refuse_friend_request(TCP &client,int data_socket,string to_id,string from_id,DATA &redis_data);//拒绝好友申请
    void send_message(TCP &client,int data_socket,string from_id,string to_id,string message,DATA &redis_data);//给好友发送消息
-void open_block(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data);
+   void open_block(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data);
+    void quit_chat(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data);
     void shield_friend(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data);//屏蔽好友
      void cancel_shield_friend(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data);//取消屏蔽
      void new_message(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data);
      void send_file(TCP &client,int data_socket,string from_id, string to_id, string message, DATA &redis_data);
     
-void accept_file(TCP &client,int data_socket,string from_id, string to_id, string message, DATA &redis_data);
-void is_friends(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
-  
+    void accept_file(TCP &client,int data_socket,string from_id, string to_id, string message, DATA &redis_data);
+    void is_friends(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
+    void store_chat_Pair(string first, string second) ;
+    bool check_chat(string a,string b);
+    void printChatPairsTable();
+    bool delete_chat_pair(string first);
+   
 
     
 };

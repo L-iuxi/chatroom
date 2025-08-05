@@ -154,7 +154,7 @@ class FRI{
     void open_block(TCP &client,LOGIN &login,string to_id);
     void shidld_friend(TCP &client,LOGIN &login);
     void cancel_shidld_friend(TCP &client,LOGIN &login);
-    void receive_log(TCP& client,string from_id,string to_id);
+   void receive_log(TCP& client,string from_id,string to_id);
     void send_message_no(TCP &client,string from_id,string to_id);
     void send_file_to_friends(TCP &client, LOGIN &login,string to_id);
     void manage_friends(TCP &client,LOGIN &login);
