@@ -1340,7 +1340,8 @@ void FRI::open_group(GRO &group,TCP &client,LOGIN &login)
     string type = "open_group";
     if(m == 1)
     {
-            break;
+      //  cout<<m<<endl;
+    break;
     }
     m = 0;
     client.send_m(type,from_id,to_id,message);
@@ -1359,7 +1360,7 @@ void FRI::open_group(GRO &group,TCP &client,LOGIN &login)
         {
              //cout<<"群主"<<endl;
             group.open_group_owner(client,login,m,group_id);
-           ;
+           
         }else if(buffer == "管理员")
         {
             group.open_group_admin(client,login,m,group_id);
@@ -1414,15 +1415,7 @@ void GRO::open_group_owner(TCP &client,LOGIN &login,int &m,string group_id)
         case 4:
         cout<<"当前操作：退出群聊"<<endl;
         quit_group(client,login,group_id,m);
-       // client.recv_server(client.data_socket);
-        if(m == 1)
-        {
-        string from_id = login.getuser_id();
-       string type = "nothing";
-        string to_id = "0";
-        string message = "0"; 
-        //client.send_m(type,from_id,to_id,message);
-        }
+
         break;
         case 5:
         cout<<"当前操作：查看群成员"<<endl;
@@ -1446,17 +1439,20 @@ void GRO::open_group_owner(TCP &client,LOGIN &login,int &m,string group_id)
         break;
         case -1:
         cout<<"当前操作：退出"<<endl;
-    
+        m =1;
         return;
+        break;
         default:  
             cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
-            break;
+            
         break;
-    }   
-    if(command == -1)
+        if(command == -1)
     {
-        m =1 ;
+        m = 1;
+        
     }
+    }   
+    
   
  
 }
@@ -1491,7 +1487,7 @@ void GRO:: open_group_block(TCP &client,LOGIN &login,string group_id)
 }
 void GRO:: send_message_group(TCP &client,string from_id,string group_id)
 {
-    //cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
    
     // 等待发送消息的信号
     while (group_active.load()) {
@@ -1561,7 +1557,7 @@ void GRO::open_group_admin(TCP &client,LOGIN &login,int &m,string group_id)
     switch(command){
         case 1:
         cout<<"当前操作：在线聊天"<<endl;
-       open_group_block(client,login,group_id);
+        open_group_block(client,login,group_id);
         //client.recv_server(client.data_socket);
         break;
         case 2:
@@ -1603,16 +1599,18 @@ void GRO::open_group_admin(TCP &client,LOGIN &login,int &m,string group_id)
         break;
         case -1:
         cout<<"当前操作：退出"<<endl;
-     
+        m = 1;
         return;
+        break;
         default:  
             cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
             break;
+
+        if(command == -1)
+    {
+        m =1 ;
         break;
-        if(m == 1)
-        {
-            break;
-        }
+    }
     }   
    
 }
@@ -1668,13 +1666,19 @@ void GRO::open_group_member(TCP &client,LOGIN &login,int &m,string group_id)
         break;
         case -1:
         cout<<"当前操作：退出"<<endl;
-       
+        m =1;
         return;
+        break;
         default:  
             cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
-            break;
+    
         break;
-    }   
+         if(command == -1)
+    {
+        m =1 ;
+        break;
+    }
+}
 
 }
 void GRO::manage_admin(TCP &client,LOGIN &login,string group_id)

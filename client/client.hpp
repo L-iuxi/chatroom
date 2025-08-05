@@ -128,9 +128,9 @@ class GRO{
     void manage_group(TCP &client,LOGIN &login,string group_id);
     void delete_admin(TCP &client,LOGIN &login,string group_id);
     void manage_admin(TCP &client,LOGIN &login,string group_id);
-    void open_group_owner(TCP &client,LOGIN &login,int &m,string group_id);
-    void open_group_admin(TCP &client,LOGIN &login,int &m,string group_id);
-    void open_group_member(TCP &client,LOGIN &login,int &m,string group_id);
+    void  open_group_owner(TCP &client,LOGIN &login,int &m,string group_id);
+    void  open_group_admin(TCP &client,LOGIN &login,int &m,string group_id);
+    void  open_group_member(TCP &client,LOGIN &login,int &m,string group_id);
     void manage_member(TCP &client,LOGIN &login,string group_id);
     void send_add_group(TCP &client, LOGIN &login) ;
     void see_add_group(TCP &client,LOGIN &login,string group_id);
