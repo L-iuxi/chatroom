@@ -910,7 +910,7 @@ void FRI ::receive_log(TCP& client,string from_id,string to_id)
         chat_active = false;
         break;
     }
-    cout<<"\033[1;36m["<<type<<"]\033[0m"<<buffer<<endl;
+    cout<<"\n\033[1;36m["<<type<<"]\033[0m"<<buffer;
        // cout<<buffer<<endl;
         
  }
