@@ -916,12 +916,14 @@ void FRI ::receive_log(TCP& client,string from_id,string to_id)
     string type;
     string message;
     
-    string buffer; 
+    //string buffer; 
     if (!chat_active.load()) break; 
-    if(!client.rec_m(type,buffer))
-    {
-        break;
-    }
+    char buffer[10086];
+    recv(client.data_socket,buffer,10086,0);
+    // if(!client.rec_m(type,buffer))
+    // {
+    //     break;
+    // }
     
     //cout<<"111"<<endl;
     if (!chat_active.load()) break; 
@@ -936,6 +938,7 @@ void FRI ::receive_log(TCP& client,string from_id,string to_id)
         break;
     }
     cout<<"\n\033[1;36m["<<type<<"]\033[0m"<<buffer;
+    memset(buffer, 0, sizeof(buffer)); 
        // cout<<buffer<<endl;
         
  }

@@ -3807,11 +3807,11 @@ void FRI:: send_message(TCP &client,int data_socket,string from_id,string to_id,
         int a_socket =client.find_socket(from_id);
         int b_socket =client.find_socket(to_id);
         string notice = "对方正在聊天框内和你聊天";
-        cout<<notice<<endl;
+        //cout<<notice<<endl;
         string type = redis_data.get_username_by_id(from_id);
-        //client.send_m(a_socket,"other", notice);
-        client.send_m(b_socket,type, message);
-        //cout<<"发送了消息"<<message<<endl;
+        send(b_socket,message.c_str(),message.size(),0);
+        //client.send_m(b_socket,type, message);
+       
         redis_data.add_message_log(from_id,to_id,message);
         return;
         
