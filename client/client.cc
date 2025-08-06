@@ -49,22 +49,39 @@ void TCP::send_m(string type, string from_sb, string to_sb, string message) {
     j["from_id"] = from_sb;
     j["to_id"] = to_sb;
     j["message"] = message;
-    
+        
     string serialized_message = j.dump();
-    
+        
     vector<char> send_buf(sizeof(uint32_t) + serialized_message.size());
-    
+        
     uint32_t len = htonl(serialized_message.size());
     memcpy(send_buf.data(), &len, sizeof(len));
-    
-    // 写入JSON数据
     memcpy(send_buf.data() + sizeof(len), serialized_message.data(), serialized_message.size());
-    
-    if (send(this->data_socket, send_buf.data(), send_buf.size(), 0) != send_buf.size()) {
-        cerr << "发送消息失败" << endl;
-    }
+        
+    size_t total_sent = 0;
+    while (total_sent < send_buf.size()) {
+    ssize_t sent = send(this->data_socket, 
+                               send_buf.data() + total_sent, 
+                               send_buf.size() - total_sent, 
+                               0);
+            
+    if (sent == -1) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    // 缓冲区满，返回false让调用者决定是否重试
+                    cerr << "发送缓冲区满，无法立即发送" << endl;
+                    continue;
+             } else {
+                    // 其他错误
+                    cerr << "发送消息失败: " << strerror(errno) << endl;
+                    throw runtime_error("发送消息失败");
+                }
+            }
+            
+            total_sent += sent;
+        }
+        
+   
 }
-
 // 接收消息
 bool TCP::rec_m(string &type, string &message) {
    static vector<char> buffer;       // 静态缓冲区保存未处理数据
@@ -183,7 +200,7 @@ void TCP:: heartbeat()
 {
     while(heartbeat_received == true)
     {
-    std::this_thread::sleep_for(std::chrono::seconds(5));
+    std::this_thread::sleep_for(std::chrono::seconds(30));
     std::unique_lock<std::mutex> lock(mtx);
     cv.wait(lock, []{ return !is_paused; });
 
@@ -402,7 +419,7 @@ void TCP::recv_server_(int data_socket)
     // if(by > 0 )
     // {
     //     b[by] = '\0';
-         cout<<"*************************************"<<endl;
+         cout<<"***************离线消息***************"<<endl;
          cout<<message<<endl;
          cout<<"*************************************"<<endl;
     // }else{
@@ -589,7 +606,7 @@ void FRI:: choose_command(TCP &client, LOGIN &login)
 void FRI::accept_file(TCP &client, LOGIN &login,string to_id) {
    
     //暂停心跳监测
-    client.pause_heartbeat();
+    //client.pause_heartbeat();
     const string download_dir = "../download";
     string type = "accept_file";
     string from_id = login.getuser_id();
@@ -621,7 +638,7 @@ void FRI::accept_file(TCP &client, LOGIN &login,string to_id) {
     
     string choice_str = to_string(choice);
     send(client.data_socket, choice_str.c_str(), choice_str.size(), 0);
-    client.resume_heartbeat();
+    //client.resume_heartbeat();
     client.connect_transfer_socket();
     this->is_transfer = true;
   
@@ -1055,19 +1072,27 @@ void FRI:: check_add_friends_request(TCP &client,LOGIN &login){
         req.status = item["status"];
         requests.push_back(req);
     }
+    cout<<"**********************************************"<<endl;
     for (const auto& req : requests)
     {
-        cout<<req.from_id<<":"<<req.message<<endl;
+        cout<<"用户"<<req.from_id<<endl<<"-----message:"<<req.message<<endl;
     }
-
+    cout<<"**********************************************"<<endl;
         int command = -1;
         cout<<"1].同意某好友申请"<<endl<<"2].拒绝某好友申请"<<endl<<"-1].退出"<<endl;
         cin>>command;
          while(1)
         {
+            cin>>command;
+        if (cin.fail()) {
+        cout<<"请输入1或者2"<<endl;
+        cin.clear(); // 清除错误状态
+        cin.ignore(numeric_limits<streamsize>::max(), '\n'); // 清空缓冲区
+        continue;
+    }
         if(command != 1 &&command != 2 &&command != -1)
         {
-        cin>>command;
+            continue;
 
         cout<<"请输入1或者2"<<endl;
         }else {
@@ -2036,7 +2061,7 @@ void GRO::accept_file_group(TCP &client, LOGIN &login,string group_id) {
     char buffer[BUFFER_SIZE];
     int name_len = recv(client.transfer_socket, filename_buf, sizeof(filename_buf)-1, 0);
     if(name_len <= 0) {
-        cerr << "接收文件名失败" << endl;
+        cerr << "\033[31m接收文件名失败\033[0m" << endl;
         close(client.transfer_socket);
         return;
     }
@@ -2054,19 +2079,26 @@ void GRO::accept_file_group(TCP &client, LOGIN &login,string group_id) {
 
     int total_received = 0;
     while(true) {
-        int bytes_recv = recv(client.transfer_socket, buffer, BUFFER_SIZE, 0);
-        if(bytes_recv <= 0) break;
-        outfile.write(buffer, bytes_recv);
-        total_received += bytes_recv;
+    int bytes_recv = recv(client.transfer_socket, buffer, BUFFER_SIZE, 0);
+    if(bytes_recv <= 0) {
+        if(bytes_recv == 0) {
+            cout << "文件传输完成" << endl;
+        } else {
+            cerr << "接收错误" << endl;
+        }
+        break;
     }
+    outfile.write(buffer, bytes_recv);
+    total_received += bytes_recv;
+}
     outfile.close();
 
-    if(total_received > 0) {
-        cout << "文件下载成功: " << save_path << " (" << total_received << " bytes)" << endl;
-    } else {
-        remove(save_path.c_str());
-        cout << "文件下载失败" << endl;
-    }
+    // if(total_received > 0) {
+        cout << "\033[32m文件下载成功: " << save_path << " (" << total_received << " bytes)\033[0m" << endl;
+    // } else {
+    //     remove(save_path.c_str());
+    //     cout << "文件下载失败" << endl;
+    // }
    // client.resume_heartbeat();//恢复心跳监测
     close(client.transfer_socket);
    // cout<<"111"<<endl;
@@ -2095,9 +2127,13 @@ while(1)
 {
 sign_up_page();
 
-cin>>command;
-cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-
+if (!(cin >> command)) {
+            cout<<"无效的命令，重新输入吧"<<endl;
+            cin.clear(); 
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');  
+            continue;  
+        }
+        cin.ignore(numeric_limits<streamsize>::max(), '\n'); 
 if (command == 1) {
 const char *message = "register";  
 send(client.getClientSocket(), message, strlen(message), 0);  

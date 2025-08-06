@@ -2064,24 +2064,20 @@ bool DATA::clear_group_files( string group_id) {
 
 void TCP::send_m(int data_socket, string type, string message) {
     try {
-        // 1. 构造JSON消息
         nlohmann::json j;
         j["type"] = type;
         j["message"] = message;
         
         string serialized_message = j.dump();
         
-        // 2. 准备发送缓冲区（长度前缀+数据）
         vector<char> send_buf(sizeof(uint32_t) + serialized_message.size());
         
-        // 写入长度前缀（网络字节序）
         uint32_t len = htonl(serialized_message.size());
         memcpy(send_buf.data(), &len, sizeof(len));
         
-        // 写入数据
+    
         memcpy(send_buf.data() + sizeof(len), serialized_message.data(), serialized_message.size());
         
-        // 3. 完整发送数据
         size_t total_sent = 0;
         const size_t total_to_send = send_buf.size();
         const int max_retries = 3;
@@ -2095,7 +2091,6 @@ void TCP::send_m(int data_socket, string type, string message) {
             
             if (sent == -1) {
                 if (errno == EWOULDBLOCK || errno == EAGAIN) {
-                    // 缓冲区满，等待后重试
                     // usleep(100000); // 等待100ms
                     retry_count++;
                     continue;
@@ -2648,7 +2643,7 @@ void TCP::send_notice(string from_id,string to_id,string message)
         cout<<"该用户不在线"<<endl;
         return;
     }
-    if(send(socket,message.c_str(),message.size(),0))
+    if(send(socket,message.c_str(),message.length(),0))
     {
         cout<<"发送消息成功"<<endl;
     }
@@ -4371,7 +4366,18 @@ void GRO::send_file_group(TCP &client,int data_socket, string from_id, string to
        }
         string ack = "SUCCESS";
         send(transfer_socket, ack.c_str(), ack.size(), 0);
-
+       //告诉在线的成员
+        vector<string> members = redis_data.get_all_members(to_id);
+    for(int i = 0;i < members.size();i++)
+    {
+        
+         if(from_id != members[i])
+        {
+        string notice =YELLOW_TEXT("有来自群"+to_id+"的新文件") ;
+        client.send_notice(from_id,members[i],notice);
+        //此时用户在线，给他一个通知
+        }   
+    }
         } else {
             remove(filename.c_str()); // 传输不完整，删除文件
             cerr << "文件接收不完整，已删除" << endl;
@@ -4457,18 +4463,20 @@ void GRO::accept_file_group(TCP &client,int data_socket, string from_id, string 
     }
     // 发送文件内容
     char buffer[BUFFER_SIZE];
-    while(!file.eof()) {
-        file.read(buffer, BUFFER_SIZE);
-        int bytes_read = file.gcount();
-        if(send(transfer_socket, buffer, bytes_read, 0) != bytes_read) {
-            cerr << "文件发送中断" << endl;
-            break;
-        }
+ 
+    while(true) {
+    file.read(buffer, BUFFER_SIZE);
+    int bytes_read = file.gcount();
+    if(bytes_read == 0) break;  // 文件读取完毕
+    
+    int sent_bytes = send(transfer_socket, buffer, bytes_read, 0);
+    if(sent_bytes != bytes_read) {
+        cerr << "文件发送中断" << endl;
+        break;
     }
-    file.close();
-
-   
-    close(transfer_socket);
+}
+// 优雅关闭连接
+shutdown(transfer_socket, SHUT_WR);  
     this_thread::sleep_for(chrono::milliseconds(150));
     redis_data.remove_unread_file(to_id,from_id,result[choice]);
 }).detach();
