@@ -2213,8 +2213,8 @@ void TCP::send_m(int data_socket, const string& type, const string& message) {
             retry_count = 0; 
             
             
-            cout << "Sent " << sent << " bytes (" 
-                 << total_sent << "/" << total_to_send << ")" << endl;
+            //cout << "Sent " << sent << " bytes (" 
+               //  << total_sent << "/" << total_to_send << ")" << endl;
         }
         
         if (total_sent != total_to_send) {
@@ -2222,7 +2222,7 @@ void TCP::send_m(int data_socket, const string& type, const string& message) {
         }
         
       
-        cout << "Successfully sent message: " << message << endl;
+       // cout << "Successfully sent message: " << message << endl;
         
     } catch (const std::exception& e) {
         cerr << "Error in send_m: " << e.what() << endl;
@@ -2241,7 +2241,7 @@ if (expected_len == 0) {
     ssize_t bytes = recv(data_socket, &len, sizeof(len), MSG_WAITALL);  
     
     // 打印接收状态
-    cout << "[DEBUG] 尝试接收长度头，socket状态: ";
+   // c//out << "[DEBUG] 尝试接收长度头，socket状态: ";
     int error = 0;
     socklen_t len_err = sizeof(error);
     getsockopt(data_socket, SOL_SOCKET, SO_ERROR, &error, &len_err);
@@ -2263,7 +2263,7 @@ if (expected_len == 0) {
     }
     
     expected_len = ntohl(len);
-    cout << "[DEBUG] 收到长度头，消息长度: " << expected_len << " 字节" << endl;
+    //cout << "[DEBUG] 收到长度头，消息长度: " << expected_len << " 字节" << endl;
     
     if (expected_len > MAX_JSON_SIZE) {  // 添加安全限制
         cerr << "[ERROR] 消息长度超过限制: " << expected_len 
@@ -2278,7 +2278,7 @@ if (buffer.size() < expected_len) {
     size_t remaining = expected_len - buffer.size();
     vector<char> temp_buf(remaining);  // 精确分配剩余需要的大小
     
-    cout << "[DEBUG] 准备接收消息体，剩余 " << remaining << " 字节" << endl;
+   // cout << "[DEBUG] 准备接收消息体，剩余 " << remaining << " 字节" << endl;
     
     ssize_t bytes = recv(data_socket, temp_buf.data(), temp_buf.size(), MSG_WAITALL);
     if (bytes <= 0) {
@@ -2312,6 +2312,17 @@ try {
     to_id = parsed["to_id"].get<string>();
     message = parsed["message"].get<string>();
     
+    if (from_id.empty()) {
+        cerr << "[WARN] 解析到空 from_id! 原始JSON: " << json_str << endl;
+        // 打印字段类型和状态
+        cerr << "字段状态: type=" << parsed["type"].type_name() 
+             << ", from_id=" << parsed["from_id"].type_name() 
+             << ", is_null=" << parsed["from_id"].is_null() << endl;
+    }
+    if (to_id.empty()) {
+        cerr << "[WARN] 解析到空 to_id!" << endl;
+    }
+
 } catch (const json::exception& e) {
     cerr << "[ERROR] JSON解析错误: " << e.what() << endl;
     cerr << "原始数据(" << buffer.size() << "字节): " 
@@ -2540,6 +2551,7 @@ void TCP::start(DATA &redis_data) {
             this->make_choice(data_socket,redis_data);
            // stopHeartbeatMonitor();
              close(data_socket);//进入登陆后的选项  
+            remove_user(data_socket);
             }
            // close(data_socket);
         });
@@ -3521,13 +3533,13 @@ bool FRI:: check_chat(string a,string b) {
    //  printChatPairsTable();
     auto it_a = group_pairs.find(a);
     if (it_a == group_pairs.end() || it_a->second != b) {
-        cout << "键 \"" << a << "\" 不指向值 \"" << b << "\"" << std::endl;
+        //cout << "键 \"" << a << "\" 不指向值 \"" << b << "\"" << std::endl;
         return false;
     }
     
     auto it_b = group_pairs.find(b);
     if (it_b == group_pairs.end() || it_b->second != a) {
-        cout << "键 \"" << b << "\" 不指向值 \"" << a << "\"" << std::endl;
+        //cout << "键 \"" << b << "\" 不指向值 \"" << a << "\"" << std::endl;
         return false;
     }
     
@@ -4214,7 +4226,7 @@ bool GRO:: check_chat(string a,string b) {
         return false;
     }
     
-   cout << "确认对应: \"" << a << "\" ↔ \"" << b << "\"" << std::endl;
+  // cout << "确认对应: \"" << a << "\" ↔ \"" << b << "\"" << std::endl;
     return true;
 }
 bool GRO::delete_chat_pair(string first) {
@@ -4271,7 +4283,7 @@ void GRO::add_group_message(TCP &client,int data_socket, string from_id, string 
         {
         int b_socket =client.find_socket(members[i]);
         string notice = "对方正在聊天框内和你聊天";
-        cout<<notice<<endl;
+       // cout<<notice<<endl;
         string type = redis_data.get_username_by_id(members[i]);
         //client.send_m(a_socket,"other", notice);
         client.send_m(b_socket,type, message);

@@ -44,6 +44,10 @@ TCP::TCP(const char* IP){
   
 // 发送消息）
 void TCP::send_m(const string& type,const string& from_sb,const string& to_sb, const string& message) {
+     if(from_sb.empty() || to_sb.empty() || type.empty())
+     {
+        cout<<"有空消息"<<endl;
+     }
     nlohmann::json j;
     j["type"] = type;
     j["from_id"] = from_sb;
@@ -495,16 +499,17 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
     string b;
     main_page(login.getuser_id(),login.getusername());
    while (!(cin >> command)) {
-            //cin.clear(); 
-            //cin.ignore(numeric_limits<streamsize>::max(), '\n'); 
             cout << "\033[31m错误：请输入数字选项！\033[0m" << endl;
+           
+             cin.clear();
+              cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
             main_page(login.getuser_id(), login.getusername()); 
         }
-        //cin.ignore(numeric_limits<streamsize>::max(), '\n');
-   
+        
+   cin.ignore(numeric_limits<streamsize>::max(), '\n'); 
     // cin>>command;
-    cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    cin.clear();
+    // cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    // cin.clear();
     string type = "";
     string to_id = "";
     string from_id = "";
