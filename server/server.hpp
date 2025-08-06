@@ -156,7 +156,8 @@ class TCP{
     string find_user_id(int socket);
     void recived_messages(DATA &redis_data,string user_id,int data_socket);
     bool  rec_m(string &type,string &from_id,string &to_id,string &message,int data_socket);
-   void send_m(int data_socket, const string& type, const string& message);
+   void send_m(int data_socket,string type,string message);
+   int readn(int data_socket,int size,char *buf);
     int generate_port();
     int new_socket(int client_socket);
     void make_choice(int data_socket,DATA &redis_data);

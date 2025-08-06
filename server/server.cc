@@ -2172,171 +2172,92 @@ string DATA::get_unred_messages(string user_id, const std::string& delimiter = "
     freeReplyObject(range_reply);
     return result;
 }
-void TCP::send_m(int data_socket, const string& type, const string& message) {
-    try {
-        nlohmann::json j;
-        j["type"] = type;
-        j["message"] = message;
-        
-        string serialized_message = j.dump();
-        
-        vector<char> send_buf(sizeof(uint32_t) + serialized_message.size());
-        
-        uint32_t len = htonl(serialized_message.size());
-        memcpy(send_buf.data(), &len, sizeof(len));
-        
-    
-        memcpy(send_buf.data() + sizeof(len), serialized_message.data(), serialized_message.size());
-        
-        size_t total_sent = 0;
-        const size_t total_to_send = send_buf.size();
-        const int max_retries = 3;
-        int retry_count = 0;
-        
-        while (total_sent < total_to_send && retry_count < max_retries) {
-            ssize_t sent = send(data_socket, send_buf.data() + total_sent, total_to_send - total_sent, 0);
-            
-            if (sent < 0) {
-                if (errno == EWOULDBLOCK || errno == EAGAIN) {
-                    // usleep(100000); // 等待100ms
-                    retry_count++;
-                    continue;
-                } 
-                // else {
-                //     // 其他错误
-                //     perror("send() failed");
-                //     throw std::runtime_error("Failed to send message");
-                // }
-            }
-            
-            total_sent += sent;
-            retry_count = 0; 
-            
-            
-            //cout << "Sent " << sent << " bytes (" 
-               //  << total_sent << "/" << total_to_send << ")" << endl;
-        }
-        
-        if (total_sent != total_to_send) {
-            throw std::runtime_error("Failed to send complete message");
-        }
-        
-      
-       // cout << "Successfully sent message: " << message << endl;
-        
-    } catch (const std::exception& e) {
-        cerr << "Error in send_m: " << e.what() << endl;
-        throw; 
+void TCP::send_m(int data_socket,string type,string message)
+{
+    if(message.empty()||data_socket < 0||type.empty())
+    {
+        return;
     }
+    nlohmann::json j;
+    j["type"] = type;
+    j["message"] = message;
+
+    string msg = j.dump();
+    uint32_t msg_len = htonl(msg.size());
+    string ext_len(4 + msg.size(), '\0');
+    memcpy(ext_len.data(), &msg_len, 4);
+    memcpy(ext_len.data() + 4, msg.data(), msg.size());
+
+    int count = ext_len.size();
+    const char *buf = ext_len.c_str();
+    while (count > 0)
+    {
+            int len = send(data_socket, buf, count, 0);
+            cout<<"发送了数据"<<buf<<endl;
+            if (len < 0)
+            {
+                if (errno == EAGAIN)
+                continue;
+            }
+            else if (len == 0)
+                return;
+            count -= len;
+            buf += len;
+        }
 }
-
-// 服务器接收
-bool TCP::rec_m(string &type, string &from_id, string &to_id, string &message, int data_socket) {
-    static vector<char> buffer;  
-static size_t expected_len = 0;  
-
-// 1. 读取长度头
-if (expected_len == 0) {
-    uint32_t len;
-    ssize_t bytes = recv(data_socket, &len, sizeof(len), MSG_WAITALL);  
-    
-    // 打印接收状态
-   // c//out << "[DEBUG] 尝试接收长度头，socket状态: ";
-    int error = 0;
-    socklen_t len_err = sizeof(error);
-    getsockopt(data_socket, SOL_SOCKET, SO_ERROR, &error, &len_err);
-    cout << "errno=" << errno << ", socket_error=" << error << endl;
-    
-    if (bytes == 0) {
-        cout << "连接已关闭" << endl;
+int TCP::readn(int data_socket,int size,char *buf)
+{
+    int count = size;
+    char *a = buf;
+    while(count > 0)
+    {
+        int len = recv(data_socket,a, count, 0);
+        if (len == -1)
+            {
+                if (errno == EAGAIN)
+                    cout << " 继续尝试读取" << endl;
+                return -1;
+            }else if (len == 0)
+            return size - count; 
+            a += len;
+            count -= len;
+    }
+    return size;
+}
+bool TCP::rec_m(string &type, string &from_id, string &to_id, string &message, int data_socket)
+{
+    uint32_t len = 0;
+    if(readn(data_socket,4,(char*)&len) != 4)
+    {
         return false;
     }
-    if (bytes == -1) {
-        cerr << "[ERROR] 接收长度头失败，错误详情: " << strerror(errno) 
-             << " (errno=" << errno << ")" << endl;
-        throw runtime_error("接收长度头失败: " + to_string(bytes) + "字节");
+    len = ntohl(len);
+    vector<char> buf(len);
+    int ret = readn(data_socket,len,buf.data());
+    if(ret != len)
+    {
+        return false;
     }
-    if (bytes != sizeof(len)) {
-        cerr << "[ERROR] 接收长度头不完整，收到 " << bytes 
-             << " 字节，期望 " << sizeof(len) << " 字节" << endl;
-        throw runtime_error("接收长度头失败: " + to_string(bytes) + "字节");
+    if(ret == 0)
+    {
+        cout <<"连接断开"<<endl;
     }
-    
-    expected_len = ntohl(len);
-    //cout << "[DEBUG] 收到长度头，消息长度: " << expected_len << " 字节" << endl;
-    
-    if (expected_len > MAX_JSON_SIZE) {  // 添加安全限制
-        cerr << "[ERROR] 消息长度超过限制: " << expected_len 
-             << " > " << MAX_JSON_SIZE << endl;
-        throw runtime_error("消息长度超过限制");
-    }
-    buffer.reserve(expected_len);
-}
-
-// 2. 接收消息体
-if (buffer.size() < expected_len) {
-    size_t remaining = expected_len - buffer.size();
-    vector<char> temp_buf(remaining);  // 精确分配剩余需要的大小
-    
-   // cout << "[DEBUG] 准备接收消息体，剩余 " << remaining << " 字节" << endl;
-    
-    ssize_t bytes = recv(data_socket, temp_buf.data(), temp_buf.size(), MSG_WAITALL);
-    if (bytes <= 0) {
-        cerr << "[ERROR] 接收消息体失败，错误详情: ";
-        if (bytes == 0) {
-            cerr << "连接已关闭" << endl;
-        } else {
-            cerr << strerror(errno) << " (errno=" << errno << ")" << endl;
-        }
-        cerr << "已接收部分数据: " << buffer.size() << "/" << expected_len << " 字节" << endl;
-        
-        buffer.clear();
-        expected_len = 0;
-        throw runtime_error("接收消息体失败");
+    string json_str;
+    json_str.assign(buf.begin(), buf.end());
+    try {
+    nlohmann::json j = nlohmann::json::parse(json_str); 
+    type = j["type"].get<string>();
+    message = j["message"].get<string>();
+    from_id = j["from_id"].get<string>();
+    to_id = j["to_id"].get<string>();
+     }catch (const nlohmann::json::exception& e) {
+        cerr << "JSON解析错误: " << e.what() << endl;
+        cerr << "原始数据: " << json_str << endl;
+        return false;
     }
     
-   // cout << "[DEBUG] 收到消息体 " << bytes << " 字节" << endl;
-    buffer.insert(buffer.end(), temp_buf.begin(), temp_buf.begin() + bytes);
-}
-
-// 3. 解析JSON（添加严格验证）
-try {
-    string json_str(buffer.begin(), buffer.end());
-    cout << "[DEBUG] 完整接收数据: " << json_str << endl;
     
-    auto parsed = json::parse(json_str);
-    
-    
-    type = parsed["type"].get<string>();
-    from_id = parsed["from_id"].get<string>();
-    to_id = parsed["to_id"].get<string>();
-    message = parsed["message"].get<string>();
-    
-    if (from_id.empty()) {
-        cerr << "[WARN] 解析到空 from_id! 原始JSON: " << json_str << endl;
-        // 打印字段类型和状态
-        cerr << "字段状态: type=" << parsed["type"].type_name() 
-             << ", from_id=" << parsed["from_id"].type_name() 
-             << ", is_null=" << parsed["from_id"].is_null() << endl;
-    }
-    if (to_id.empty()) {
-        cerr << "[WARN] 解析到空 to_id!" << endl;
-    }
-
-} catch (const json::exception& e) {
-    cerr << "[ERROR] JSON解析错误: " << e.what() << endl;
-    cerr << "原始数据(" << buffer.size() << "字节): " 
-         << string(buffer.begin(), buffer.end()) << endl;
-    
-    buffer.clear();
-    expected_len = 0;
-   // throw runtime_error("JSON解析失败: " + string(e.what()));
-}
-
-// 4. 清理缓冲区
-buffer.clear();
-expected_len = 0;
-return true;
+    return true;
 }
 
 // 辅助函数：简单验证JSON完整性
@@ -2990,6 +2911,7 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
 
     string type,to_id,from_id,message;
     recived_messages(redis_data,find_user_id(data_socket),data_socket);
+    cout<<"已发送离线消息"<<endl;
     while(1)
     {
         if(!rec_m(type,from_id,to_id,message,data_socket))
@@ -3303,6 +3225,7 @@ void TCP::recived_messages(DATA &redis_data, string user_id, int data_socket) {
     {
         const char* b= "无未读消息";
         send_m(data_socket,"other",b);
+       // cout<<"已发送"<<endl;
         return;
     }
         send_m(data_socket,"other",a);
@@ -3809,8 +3732,8 @@ void FRI:: send_message(TCP &client,int data_socket,string from_id,string to_id,
         string notice = "对方正在聊天框内和你聊天";
         //cout<<notice<<endl;
         string type = redis_data.get_username_by_id(from_id);
-        send(b_socket,message.c_str(),message.size(),0);
-        //client.send_m(b_socket,type, message);
+       // send(b_socket,message.c_str(),message.size(),0);
+        client.send_m(b_socket,type, message);
        
         redis_data.add_message_log(from_id,to_id,message);
         return;

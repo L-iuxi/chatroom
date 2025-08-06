@@ -62,6 +62,7 @@ class TCP{
 
     void send_m(const string& type,const string& from_sb,const string& to_sb, const string& message);//发送消息的函数
     bool rec_m(string &type,string &message);
+    int readn(int data_socket,int size,char *buf);
     void new_socket();
     void connect_transfer_socket();
     void heartbeat();
