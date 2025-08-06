@@ -758,7 +758,7 @@ void FRI::send_file_to_friends(TCP &client, LOGIN &login, string to_id) {
 
         file.close();
         shutdown(client.transfer_socket, SHUT_WR);
-        cout<<"准备接收ack"<<endl;
+        //cout<<"准备接收ack"<<endl;
         // 接收ACK
         char ack[16] = {0};
         int h = recv(client.transfer_socket, ack, sizeof(ack) - 1, 0);
@@ -771,7 +771,7 @@ void FRI::send_file_to_friends(TCP &client, LOGIN &login, string to_id) {
                 cout << "\033[31m错误: " << ack << "\033[0m" << endl;
             }
         }
-        cout<<"接收ack"<<endl;
+       // cout<<"接收ack"<<endl;
         close(client.transfer_socket);
         this->is_transfer = false;
     }).detach();
