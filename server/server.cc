@@ -553,32 +553,43 @@ bool DATA::check_recived_recover(string from_id, string type, string& data) {
     return found;  
 }
 //把消息添加到消息列表
-bool DATA::add_message_log(string from_id,string to_id,string m){
- 
+bool DATA::add_message_log(string from_id, string to_id, string m) {
+    // 清理消息内容并添加时间戳
     string message = delete_space(m);
     string timestamp = getCurrentTimestamp();
     message += "|send|" + timestamp;
-   char a = '"';
-    string listCommand = "RPUSH messages:" + from_id + ":" + to_id +" " + message;
-    cout<<"listcommand is"<<listCommand.c_str()<<endl;
-  
-    redisReply* reply = (redisReply*)redisCommand(c, listCommand.c_str());
-  
-   //redisReply* reply = (redisReply*)redisCommand(c, listCommand.c_str());
 
-    if (reply && reply->type == REDIS_REPLY_INTEGER && reply->integer > 0) {
-    cout << "Pushed message successfully. List length: " << reply->integer << endl;
-    freeReplyObject(reply);
-    return true;
+    // 构造Redis键名
+    const string list_key = "messages:" + from_id + ":" + to_id;
+    
+    // 原子化操作：插入消息并修剪列表（保持最新1000条）
+    const int MAX_MESSAGES = 100; // 最大保留消息数
+    string lua_script = 
+        "redis.call('RPUSH', KEYS[1], ARGV[1])\n"
+        "redis.call('LTRIM', KEYS[1], -" + to_string(MAX_MESSAGES) + ", -1)\n"
+        "return redis.call('LLEN', KEYS[1])";
+
+    redisReply* reply = (redisReply*)redisCommand(c, 
+        "EVAL %s 1 %s %s", 
+        lua_script.c_str(), 
+        list_key.c_str(), 
+        message.c_str());
+
+    // 处理结果
+    bool success = false;
+    if (reply) {
+        if (reply->type == REDIS_REPLY_INTEGER) {
+            cout << "消息添加成功，当前列表长度: " << reply->integer << endl;
+            success = true;
+        } else if (reply->type == REDIS_REPLY_ERROR) {
+            cerr << "Redis错误: " << reply->str << endl;
+        }
+        freeReplyObject(reply);
     } else {
-    cout << "Failed to push message" << endl;
-    if (reply) 
-    freeReplyObject(reply);
-    return false;
+        cerr << "无法连接Redis" << endl;
     }
 
-
-    return false;
+    return success;
 }
 bool DATA::add_message_log_unread(string from_id,string to_id,string m){
  
