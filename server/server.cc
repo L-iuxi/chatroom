@@ -2060,9 +2060,108 @@ bool DATA::clear_group_files( string group_id) {
     freeReplyObject(reply);
     return true;
 }
+bool DATA::add_unread_message(string user_id,string message) {
+    string key = "unread_notice:" + user_id;
 
+    redisReply* reply = static_cast<redisReply*>(
+        redisCommand(c, "RPUSH %s %s", key.c_str(), message.c_str())
+    );
 
-void TCP::send_m(int data_socket, string type, string message) {
+    bool success = (reply != nullptr) && 
+                  (reply->type == REDIS_REPLY_INTEGER) && 
+                  (reply->integer >= 1);  
+
+    if (!success) {
+        std::cerr << "[REDIS ERROR] 消息插入失败: ";
+        if (reply && reply->type == REDIS_REPLY_ERROR) {
+            std::cerr << reply->str;  // 打印Redis错误信息
+        } else {
+            std::cerr << "未知错误";
+        }
+        std::cerr << std::endl;
+    }
+
+    if (reply) freeReplyObject(reply);
+    return success;
+}
+
+bool DATA::delete_notice_messages(string user_id) {
+    std::string key = "unread_notice:" + user_id;
+
+    redisReply* reply = static_cast<redisReply*>(
+        redisCommand(c, "DEL %s", key.c_str())
+    );
+
+    bool success = (reply != nullptr) && 
+                  (reply->type == REDIS_REPLY_INTEGER) && 
+                  (reply->integer == 1);
+
+    if (!success) {
+        std::cerr << "[REDIS ERROR] 列表删除失败: ";
+        if (reply && reply->type == REDIS_REPLY_ERROR) {
+            std::cerr << reply->str;
+        } else if (reply && reply->integer == 0) {
+            std::cerr << "键不存在";
+        } else {
+            std::cerr << "未知错误";
+        }
+        std::cerr << std::endl;
+    }
+
+    if (reply) freeReplyObject(reply);
+    return success;
+}
+string DATA::get_unred_messages(string user_id, const std::string& delimiter = "\n") {
+    std::string key = "unread_notice:" + user_id;
+    std::string result;
+
+    redisReply* len_reply = static_cast<redisReply*>(
+        redisCommand(c, "LLEN %s", key.c_str())
+    );
+
+    if (!len_reply || len_reply->type != REDIS_REPLY_INTEGER) {
+        std::cerr << "[REDIS ERROR] 获取列表长度失败: ";
+        if (len_reply && len_reply->type == REDIS_REPLY_ERROR) {
+            std::cerr << len_reply->str;
+        } else {
+            std::cerr << "连接错误";
+        }
+        std::cerr << std::endl;
+        if (len_reply) freeReplyObject(len_reply);
+        return "";
+    }
+
+    long list_len = len_reply->integer;
+    freeReplyObject(len_reply);
+
+    if (list_len == 0) {
+        return "";
+    }
+
+    redisReply* range_reply = static_cast<redisReply*>(
+        redisCommand(c, "LRANGE %s 0 -1", key.c_str())
+    );
+
+    if (!range_reply || range_reply->type != REDIS_REPLY_ARRAY) {
+        std::cerr << "[REDIS ERROR] 获取消息列表失败" << std::endl;
+        if (range_reply) freeReplyObject(range_reply);
+        return "";
+    }
+
+    // 4. 拼接所有消息
+    for (size_t i = 0; i < range_reply->elements; ++i) {
+        if (range_reply->element[i]->type == REDIS_REPLY_STRING) {
+            if (!result.empty()) {
+                result += delimiter;
+            }
+            result += range_reply->element[i]->str;
+        }
+    }
+
+    freeReplyObject(range_reply);
+    return result;
+}
+void TCP::send_m(int data_socket, const string& type, const string& message) {
     try {
         nlohmann::json j;
         j["type"] = type;
@@ -2084,10 +2183,7 @@ void TCP::send_m(int data_socket, string type, string message) {
         int retry_count = 0;
         
         while (total_sent < total_to_send && retry_count < max_retries) {
-            ssize_t sent = send(data_socket, 
-                              send_buf.data() + total_sent, 
-                              total_to_send - total_sent, 
-                              0);
+            ssize_t sent = send(data_socket, send_buf.data() + total_sent, total_to_send - total_sent, 0);
             
             if (sent < 0) {
                 if (errno == EWOULDBLOCK || errno == EAGAIN) {
@@ -2114,24 +2210,24 @@ void TCP::send_m(int data_socket, string type, string message) {
             throw std::runtime_error("Failed to send complete message");
         }
         
-        // 调试信息
+      
         cout << "Successfully sent message: " << message << endl;
         
     } catch (const std::exception& e) {
         cerr << "Error in send_m: " << e.what() << endl;
-        throw; // 重新抛出异常
+        throw; 
     }
 }
 
 // 服务器接收
 bool TCP::rec_m(string &type, string &from_id, string &to_id, string &message, int data_socket) {
-    static vector<char> buffer;  // 保存未处理的数据
-static size_t expected_len = 0;  // 期望接收的消息体长度
+    static vector<char> buffer;  
+static size_t expected_len = 0;  
 
 // 1. 读取长度头
 if (expected_len == 0) {
     uint32_t len;
-    ssize_t bytes = recv(data_socket, &len, sizeof(len), MSG_WAITALL);  // 阻塞直到收到完整长度头
+    ssize_t bytes = recv(data_socket, &len, sizeof(len), MSG_WAITALL);  
     
     // 打印接收状态
     cout << "[DEBUG] 尝试接收长度头，socket状态: ";
@@ -2188,7 +2284,7 @@ if (buffer.size() < expected_len) {
         throw runtime_error("接收消息体失败");
     }
     
-    cout << "[DEBUG] 收到消息体 " << bytes << " 字节" << endl;
+   // cout << "[DEBUG] 收到消息体 " << bytes << " 字节" << endl;
     buffer.insert(buffer.end(), temp_buf.begin(), temp_buf.begin() + bytes);
 }
 
@@ -2197,19 +2293,8 @@ try {
     string json_str(buffer.begin(), buffer.end());
     cout << "[DEBUG] 完整接收数据: " << json_str << endl;
     
-    if (!is_valid_json(json_str)) {
-        cerr << "[ERROR] JSON格式验证失败" << endl;
-        throw runtime_error("接收的JSON不完整");
-    }
-    
     auto parsed = json::parse(json_str);
     
-    // 强制字段检查
-    if (!parsed.contains("type") || !parsed.contains("from_id") || 
-        !parsed.contains("to_id") || !parsed.contains("message")) {
-        cerr << "[ERROR] JSON缺少必需字段" << endl;
-        throw runtime_error("JSON缺少必需字段");
-    }
     
     type = parsed["type"].get<string>();
     from_id = parsed["from_id"].get<string>();
@@ -2223,7 +2308,7 @@ try {
     
     buffer.clear();
     expected_len = 0;
-    throw runtime_error("JSON解析失败: " + string(e.what()));
+   // throw runtime_error("JSON解析失败: " + string(e.what()));
 }
 
 // 4. 清理缓冲区
@@ -2636,12 +2721,13 @@ string TCP::get_userid_by_noticesocket(int sockfd) {
         return "";
     }
 //发送实时消息
-void TCP::send_notice(string from_id,string to_id,string message)
+void TCP::send_notice(string from_id,string to_id,string message,DATA &redis_data)
 {
     int socket =get_noticesocket_by_userid(to_id);
     if(socket == -1)
     {
-        cout<<"该用户不在线"<<endl;
+        redis_data.add_unread_message(to_id,message);
+        //cout<<"该用户不在线"<<endl;
         return;
     }
     if(send(socket,message.c_str(),message.length(),0))
@@ -3189,96 +3275,16 @@ void FRI::is_friends(TCP &client,int data_socket, string from_id, string to_id, 
 }
 //给登陆的用户一直发送实时消息通知
 void TCP::recived_messages(DATA &redis_data, string user_id, int data_socket) {
-    string type = "accept";
-    string data1;
-    vector<string> fromids;
-    vector<string> messages;
-    string message;
-    unordered_map<string, string> latest_messages;
-    
-    // 绿色ANSI颜色代码
-    const string GREEN = "\033[36m";
-    const string RESET = "\033[0m";
-    
-    // 有没有人通过我的好友请求
-    if (redis_data.check_recived_recover(user_id, type, data1)) {
-        message = "有用户通过了你的好友请求\n" + data1 + "\n";
+    string a= redis_data.get_unred_messages(user_id);
+    if(a == ""||a.empty())
+    {
+        const char* b= "无未读消息";
+        send_m(data_socket,"other",b);
+        return;
     }
-    
-    type = "refuse";
-    string data2;
-    // 有没有人拒绝我的好友请求
-    if (redis_data.check_recived_recover(user_id, type, data2)) {
-        message.append("\n");
-        message.append("有用户拒绝了你的好友申请\n");
-        message.append(data2);
-    }
-    
-    // 有没有未读消息
-    if (redis_data.get_messages(user_id, fromids, messages)) {
-        string result_message;
-        if (fromids.empty() || messages.empty()) {
-            result_message = "没有未读消息\n";
-        } else {
-            for (size_t i = 0; i < fromids.size(); i++) {
-                latest_messages[fromids[i]] = messages[i];
-            }
-            result_message = "有" + to_string(latest_messages.size()) + "位联系人的未读消息:";
-            
-            for (const auto& pair : latest_messages) {
-                result_message += "\n来自 " + GREEN + redis_data.get_username_by_id(pair.first) + RESET + 
-                                "(" + pair.first + ")" + ": " + pair.second + "\n";
-            }
-        }
-        message += result_message;
-    }
-    
-    // 有没有好友申请
-    string request = redis_data.check_add_request(user_id);
-    if (request != "null") {
-        message += "有新的好友申请\n";
-    }
-    
-    //有没有未读文件
-    vector<pair<string, string>> unreadFiles;
-    redis_data.get_unread_files(user_id, unreadFiles);
-    if (!unreadFiles.empty()) {
-        for (const auto& file : unreadFiles) {
-            message += "有来自" + GREEN + redis_data.get_username_by_id(file.first) + RESET + 
-                       "(" + file.first + ")" + "的新文件" + file.second + "\n";
-        }
-    } 
-    
-    // 有没有加群申请和群未读消息
-    vector<string> group_ids = redis_data.get_groups_by_user(user_id);
-    if (!group_ids.empty()) {
-        for (const auto& group_id : group_ids) {
-            vector<pair<string, string>> applications = redis_data.get_unread_applications(group_id);
-            if (!applications.empty() && (redis_data.is_group_owner(group_id, user_id) || redis_data.is_admin(user_id, group_id))) {
-                for (const auto& app : applications) {
-                    message += "群" + GREEN + redis_data.get_group_name(group_id) + RESET + 
-                              "(" + group_id + ")" + "有来自" + GREEN + redis_data.get_username_by_id(app.first) + RESET + 
-                              "(" + app.first + ")" + "的申请消息\n";
-                }
-            }
-
-            vector<pair<string, string>> group_messages = redis_data.get_unread_messages(user_id, group_id);
-            if (!group_messages.empty()) {
-                message += "群" + GREEN + redis_data.get_group_name(group_id) + RESET + 
-                           "(" + group_id + ")" + "有新消息\n";
-            }
-            
-            vector<string> unread_file = redis_data.get_unread_file_group(group_id, user_id);
-            if (!unread_file.empty()) {
-                message += "群" + GREEN + redis_data.get_group_name(group_id) + RESET + 
-                           "(" + group_id + ")" + "有新文件\n";
-            }
-        }
-    }
-    send_m(data_socket,"other",message);
-    //send(data_socket, message.c_str(), message.size(), 0);
+        send_m(data_socket,"other",a);
+        redis_data.delete_notice_messages(user_id);
 }
-
 void FRI::send_file(TCP &client, int data_socket, string from_id, string to_id, string message, DATA &redis_data) {
     int transfer_socket = client.new_transfer_socket(data_socket);
     if (transfer_socket == -1) {
@@ -3343,7 +3349,7 @@ void FRI::send_file(TCP &client, int data_socket, string from_id, string to_id, 
                 cout << "文件接收成功: " << filename << endl;
                 string ack = "SUCCESS";
                 string notice =YELLOW_TEXT("有来自"+from_id+"的新文件") ;
-                client.send_notice(from_id,to_id,notice);
+                client.send_notice(from_id,to_id,notice,redis_data);
                 send(transfer_socket, ack.c_str(), ack.size(), 0);
             } else {
                 remove(filename.c_str()); // Redis 失败，删除文件
@@ -3420,6 +3426,18 @@ void FRI :: new_message(TCP &client,int data_socket,string from_id,string to_id,
 }
 void FRI::cancel_shield_friend(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data)
 {
+    if(from_id == to_id)
+    {
+         string a= "你不能解除屏蔽自己";
+         client.send_m(data_socket,"other",a);
+        return;
+    }
+     if(!redis_data.is_friend(to_id,from_id) &&!redis_data.is_friend(from_id,to_id))
+    {
+        const char* a= "你未屏蔽该用户";
+        client.send_m(data_socket,"other",a);
+        return;
+    }
      if(redis_data.is_friend(to_id,from_id) &&redis_data.is_friend(from_id,to_id))
     {
         const char* a= "你未屏蔽该用户";
@@ -3428,7 +3446,7 @@ void FRI::cancel_shield_friend(TCP &client,int data_socket,string from_id,string
     }
     redis_data.add_friends(to_id,from_id);
     string notice = GREEN_TEXT("用户" + from_id + "已解除对你的屏蔽!");
-    client.send_notice(from_id,to_id,notice);
+    client.send_notice(from_id,to_id,notice,redis_data);
     const char*recover = "已成功解除屏蔽好友";
     cout<<recover<<endl;
      client.send_m(data_socket,"other",recover);
@@ -3457,7 +3475,7 @@ void FRI::shield_friend(TCP &client,int data_socket,string from_id,string to_id,
     
     redis_data.rdelete_friend(to_id,from_id);
     string notice = RED_TEXT("用户" + from_id + "已将你屏蔽!");
-    client.send_notice(from_id,to_id,notice);
+    client.send_notice(from_id,to_id,notice,redis_data);
     string recover = "已成功屏蔽好友";
     //cout<<recover<<endl;
    client.send_m(data_socket,"other",recover);
@@ -3631,7 +3649,7 @@ void FRI::send_add_request(TCP &client,int data_socket,string to_id,string from_
 
     string recover =  GREEN_TEXT("已成功发送好友申请");
     string notice =YELLOW_TEXT("收到来自用户"+from_id+"的好友申请") ;
-    client.send_notice(from_id,to_id,notice);
+    client.send_notice(from_id,to_id,notice,redis_data);
     cout<<recover<<endl;
     client.send_m(data_socket,"other",recover);
     
@@ -3693,7 +3711,7 @@ void FRI::add_friend(TCP &client,int data_socket,string to_id,string from_id,DAT
     string d=GREEN_TEXT("添加好友成功！");
     cout<<d<<endl;
     string notice =YELLOW_TEXT(from_id+"已同意你的好友申请") ;
-    client.send_notice(from_id,to_id,notice);
+    client.send_notice(from_id,to_id,notice,redis_data);
     client.send_m(data_socket,"other",d);
     return;
     }
@@ -3746,7 +3764,7 @@ void FRI::refuse_friend_request(TCP &client,int data_socket,string to_id,string 
     {
         const char* d = "已拒绝该好友申请";
         string notice =YELLOW_TEXT(from_id+"已拒绝你的好友申请") ;
-        client.send_notice(from_id,to_id,notice);
+        client.send_notice(from_id,to_id,notice,redis_data);
         client.send_m(data_socket,"other",d);
         return;
     }
@@ -3770,7 +3788,7 @@ void FRI:: send_message(TCP &client,int data_socket,string from_id,string to_id,
         string type = redis_data.get_username_by_id(from_id);
         //client.send_m(a_socket,"other", notice);
         client.send_m(b_socket,type, message);
-        cout<<"发送了消息"<<message<<endl;
+        //cout<<"发送了消息"<<message<<endl;
         redis_data.add_message_log(from_id,to_id,message);
         return;
         
@@ -3779,7 +3797,7 @@ void FRI:: send_message(TCP &client,int data_socket,string from_id,string to_id,
   if(redis_data.add_message_log_unread(from_id,to_id,message))
            {
             string notice =YELLOW_TEXT("有一条来自"+from_id+"的新消息") ;
-            client.send_notice(from_id,to_id,notice);
+            client.send_notice(from_id,to_id,notice,redis_data);
            }else{
             string a= "消息发送失败";
            }
@@ -3840,7 +3858,7 @@ void GRO::generate_group(TCP &client,int data_socket, string from_id, string to_
             all_success = false;
         }
         string notice =YELLOW_TEXT("你已被拉入群聊"+group_id) ;
-        client.send_notice(from_id,member_id,notice);
+        client.send_notice(from_id,member_id,notice,redis_data);
     }
     if (all_success) {
         group_id = GREEN_TEXT(group_id);
@@ -3959,7 +3977,7 @@ void GRO::add_admin(TCP &client,int data_socket, string from_id, string to_id, s
     {
     response = "添加该用户为管理员成功";
      string notice =YELLOW_TEXT("你已被设置为管理员"+group_id) ;
-        client.send_notice(from_id,to_id,notice);
+        client.send_notice(from_id,to_id,notice,redis_data);
      client.send_m(data_socket,"other", response);
     }
     
@@ -4040,7 +4058,7 @@ void GRO::delete_admin(TCP &client,int data_socket, string from_id, string to_id
         return;
     }
     string a =RED_TEXT("群主已撤销你的管理员"+message);
-        client.send_notice(from_id,to_id,a);
+        client.send_notice(from_id,to_id,a,redis_data);
         string response = GREEN_TEXT("已成功移除");
       client.send_m(data_socket,"other", response);
         
@@ -4078,7 +4096,7 @@ void GRO::add_member(TCP &client,int data_socket, string from_id, string to_id, 
  }
     string response = "已成功邀请";
     string notice =GREEN_TEXT("你的好友"+from_id+"已邀请你进入群"+message) ;
-        client.send_notice(from_id,to_id,notice);
+        client.send_notice(from_id,to_id,notice,redis_data);
   client.send_m(data_socket,"other", response);
 }
 void GRO::send_add_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data)
@@ -4145,7 +4163,7 @@ void GRO::add_group_member(TCP &client,int data_socket, string from_id, string t
     {
         redis_data.add_group_member(message,to_id);
         string notice =GREEN_TEXT("你已被批准加入群"+message) ;
-        client.send_notice(from_id,to_id,notice);
+        client.send_notice(from_id,to_id,notice,redis_data);
         string response = "已同意该申请";
        client.send_m(data_socket,"other", response);
        
@@ -4250,7 +4268,7 @@ void GRO::add_group_message(TCP &client,int data_socket, string from_id, string 
         }else if(from_id != members[i])
     {
         string notice =YELLOW_TEXT("有来自群"+to_id+"的新消息") ;
-        client.send_notice(from_id,members[i],notice);
+        client.send_notice(from_id,members[i],notice,redis_data);
         //此时用户在线，给他一个通知
     }   
     }
@@ -4375,7 +4393,7 @@ void GRO::send_file_group(TCP &client,int data_socket, string from_id, string to
          if(from_id != members[i])
         {
         string notice =YELLOW_TEXT("有来自群"+to_id+"的新文件") ;
-        client.send_notice(from_id,members[i],notice);
+        client.send_notice(from_id,members[i],notice,redis_data);
         //此时用户在线，给他一个通知
         }   
     }

@@ -44,8 +44,9 @@ class TCP{
     private:
     int client_socket;
     char buffer[BUFFER_SIZE];
-    int heart_socket;
+    
     public:
+     int heart_socket;
     int notice_socket;
     int transfer_socket;
     int data_socket;
@@ -59,7 +60,7 @@ class TCP{
     return client_socket;
     }
 
-    void send_m(string type,string from_sb,string to_sb,string message);//发送消息的函数
+    void send_m(const string& type,const string& from_sb,const string& to_sb, const string& message);//发送消息的函数
     bool rec_m(string &type,string &message);
     void new_socket();
     void connect_transfer_socket();

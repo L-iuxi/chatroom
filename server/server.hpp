@@ -124,6 +124,9 @@ class DATA{
     bool delete_file_records(string user_id);//删除某人的所有文件（接收or发送
     bool delete_message_logs(string user_id);//删除某人的所有消息
     bool delete_friends(string user_id) ;//删除某人的所有好友
+    string get_unred_messages(string user_id, const std::string& delimiter); 
+    bool delete_notice_messages(string user_id);
+    bool add_unread_message(string user_id,string message);
     //bool DATA::delete_user(user_id)
 };
 class TCP{
@@ -153,7 +156,7 @@ class TCP{
     string find_user_id(int socket);
     void recived_messages(DATA &redis_data,string user_id,int data_socket);
     bool  rec_m(string &type,string &from_id,string &to_id,string &message,int data_socket);
-   void send_m(int data_socket,string type,string message);
+   void send_m(int data_socket, const string& type, const string& message);
     int generate_port();
     int new_socket(int client_socket);
     void make_choice(int data_socket,DATA &redis_data);
@@ -177,7 +180,7 @@ class TCP{
     int get_noticesocket_by_userid(string userid);
     string  get_userid_by_noticesocket(int sockfd);
     //发送实时消息
-    void send_notice(string from_id,string to_id,string message);
+    void send_notice(string from_id,string to_id,string message,DATA &redis_data);
 };
 class LOGIN{
    private:

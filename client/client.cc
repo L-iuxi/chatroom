@@ -43,7 +43,7 @@ TCP::TCP(const char* IP){
     }
   
 // 发送消息）
-void TCP::send_m(string type, string from_sb, string to_sb, string message) {
+void TCP::send_m(const string& type,const string& from_sb,const string& to_sb, const string& message) {
     nlohmann::json j;
     j["type"] = type;
     j["from_id"] = from_sb;
@@ -67,8 +67,6 @@ void TCP::send_m(string type, string from_sb, string to_sb, string message) {
             
     if (sent == -1) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    // 缓冲区满，返回false让调用者决定是否重试
-                    cerr << "发送缓冲区满，无法立即发送" << endl;
                     continue;
              } else {
                     // 其他错误
@@ -99,8 +97,11 @@ bool TCP::rec_m(string &type, string &message) {
                 heartbeat_received = false;
                // cout << "[DEBUG] 与服务器连接已断开 (recv返回0)" << endl;
                 close(data_socket);
+                close(heart_socket);
+                close(notice_socket);
             } else {
                 cerr << "[DEBUG] recv错误: " << strerror(errno) << endl;
+                return false;
             }
             return false;
         }
@@ -122,29 +123,33 @@ bool TCP::rec_m(string &type, string &message) {
         reading_header = false;
     }
 
-    // 读取消息体
-    // 在接收消息体部分修改为：
+   
 if (!reading_header && buffer.size() < expected_len) {
     size_t remaining = expected_len - buffer.size();
-    vector<char> temp_buf(remaining); // 直接分配剩余需要的空间
+    vector<char> temp_buf(remaining); 
     
     ssize_t bytes = recv(data_socket, temp_buf.data(), temp_buf.size(), 0);
     if (bytes <= 0) {
-        // 错误处理...
+        heartbeat_received = false;
+               // cout << "[DEBUG] 与服务器连接已断开 (recv返回0)" << endl;
+                close(data_socket);
+                close(heart_socket);
+                close(notice_socket);
     }
     
     buffer.insert(buffer.end(), temp_buf.begin(), temp_buf.begin() + bytes);
    // cout << "[DEBUG] 收到消息体(" << bytes << "/" << remaining << "字节)\n";
 
     if (buffer.size() < expected_len) {
-        return false; // 继续接收
+        return false; 
     }
 }
 
     // 完整消息已接收，开始解析
     try {
         if(buffer.empty()) {
-            throw runtime_error("接收到的数据为空");
+            return false;
+           // throw runtime_error("接收到的数据为空");
         }
 
         // 打印原始二进制数据
@@ -458,7 +463,11 @@ void TCP::notice_receiver_thread() {
             ssize_t bytes = recv(notice_socket, buffer, sizeof(buffer), 0);
             if (bytes <= 0) {
                 if (bytes == 0) {
-                    std::cerr << "通知服务器连接已关闭" << std::endl;
+                    cerr << "通知服务器连接已关闭" << endl;
+                    close(data_socket);
+                    close(notice_socket);
+                    close(heart_socket);
+                    break;
                 } else {
                     std::cerr << "通知接收错误: " << strerror(errno) << std::endl;
                 }
@@ -482,12 +491,18 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
     GRO group;
     while(1)
     {
-    int command = 0; 
+    int command = -1; 
     string b;
     main_page(login.getuser_id(),login.getusername());
+   while (!(cin >> command)) {
+            //cin.clear(); 
+            //cin.ignore(numeric_limits<streamsize>::max(), '\n'); 
+            cout << "\033[31m错误：请输入数字选项！\033[0m" << endl;
+            main_page(login.getuser_id(), login.getusername()); 
+        }
+        //cin.ignore(numeric_limits<streamsize>::max(), '\n');
    
-   
-    cin>>command;
+    // cin>>command;
     cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     cin.clear();
     string type = "";
@@ -532,6 +547,8 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
         type = "quit";
         from_id = login.getuser_id();
         client.send_m(type,from_id,to_id,message); 
+        close(client.data_socket);
+        close(client.heart_socket);
          close(client.notice_socket);
         break;
         default:  
@@ -896,7 +913,10 @@ void FRI ::receive_log(TCP& client,string from_id,string to_id)
     
     string buffer; 
     if (!chat_active.load()) break; 
-    client.rec_m(type,buffer);
+    if(!client.rec_m(type,buffer))
+    {
+        break;
+    }
     
     //cout<<"111"<<endl;
     if (!chat_active.load()) break; 
