@@ -534,6 +534,9 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
         client.send_m(type,from_id,to_id,message); 
          close(client.notice_socket);
         break;
+        default:  
+            cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
+            break;
     }   
     if(command == -1)
     {
@@ -1080,7 +1083,6 @@ void FRI:: check_add_friends_request(TCP &client,LOGIN &login){
     cout<<"**********************************************"<<endl;
         int command = -1;
         cout<<"1].同意某好友申请"<<endl<<"2].拒绝某好友申请"<<endl<<"-1].退出"<<endl;
-        cin>>command;
          while(1)
         {
             cin>>command;
@@ -2019,7 +2021,7 @@ void GRO::send_file_group(TCP &client,LOGIN &login,string group_id)
 }
 void GRO::accept_file_group(TCP &client, LOGIN &login,string group_id) {
     
-    const string download_dir = "../download";
+  const string download_dir = "../download";
     string type = "accept_file_group";
     string from_id = login.getuser_id();
     string message = "0";
@@ -2036,25 +2038,51 @@ void GRO::accept_file_group(TCP &client, LOGIN &login,string group_id) {
     }
     buffer1[bytes] = '\0';
     string response(buffer1);
-    if(response == "NO_FILES")
-    {
-        cout<<"没有文件"<<endl;
+    if (response == "NO_FILES") {
+        cout << "没有文件" << endl;
         return;
     }
 
-    
-    // 3. 显示文件列表并让用户选择
+    // 显示文件列表并让用户选择
     cout << "可下载文件列表:\n" << buffer1;
     cout << "请输入要下载的文件序号: ";
     
     int choice;
-    cin >> choice;
-    cin.ignore(); // 清除输入缓冲区
-    
-    string choice_str = to_string(choice);
+    while (true) {
+        cin >> choice;
+        if (cin.fail()) {  
+            cout << "输入无效，请输入数字: ";
+            cin.clear(); 
+            cin.ignore(numeric_limits<streamsize>::max(), '\n'); 
+            continue;
+        }
+        cin.ignore();  
+        break;
+    }
+string choice_str = to_string(choice);
     send(client.data_socket, choice_str.c_str(), choice_str.size(), 0);
 
+    // 接收服务器对 choice 的响应
+    char response_buf[BUFFER_SIZE];
+    bytes = recv(client.data_socket, response_buf, BUFFER_SIZE, 0);
+    if (bytes <= 0) {
+        cout << "服务器无响应" << endl;
+        return;
+    }
+    response_buf[bytes] = '\0';
+    string choice_response(response_buf);
+
+    if (choice_response == "INVALID_CHOICE") {
+        cout << "无效的选择，请重新操作！" << endl;
+        return;
+    } else if (choice_response != "VALID_CHOICE") {
+        cout << "未知的服务器响应" << endl;
+        return;
+    }
+
+
     client.connect_transfer_socket();
+    this->is_transfer = true;
      this->is_transfer = true;
     thread([this,&client,download_dir](){
     char filename_buf[256];

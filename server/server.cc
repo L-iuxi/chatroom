@@ -2089,22 +2089,23 @@ void TCP::send_m(int data_socket, string type, string message) {
                               total_to_send - total_sent, 
                               0);
             
-            if (sent == -1) {
+            if (sent < 0) {
                 if (errno == EWOULDBLOCK || errno == EAGAIN) {
                     // usleep(100000); // 等待100ms
                     retry_count++;
                     continue;
-                } else {
-                    // 其他错误
-                    perror("send() failed");
-                    throw std::runtime_error("Failed to send message");
-                }
+                } 
+                // else {
+                //     // 其他错误
+                //     perror("send() failed");
+                //     throw std::runtime_error("Failed to send message");
+                // }
             }
             
             total_sent += sent;
-            retry_count = 0; // 重置重试计数
+            retry_count = 0; 
             
-            // 调试信息
+            
             cout << "Sent " << sent << " bytes (" 
                  << total_sent << "/" << total_to_send << ")" << endl;
         }
@@ -4424,7 +4425,7 @@ void GRO::accept_file_group(TCP &client,int data_socket, string from_id, string 
         send(data_socket, "INVALID_CHOICE", 14, 0);
         return;
     }
-
+    send(data_socket, "VALID_CHOICE", 12, 0);
     
     int transfer_socket = client.new_transfer_socket(data_socket);
     if(transfer_socket == -1) {
