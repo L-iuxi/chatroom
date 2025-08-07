@@ -68,7 +68,7 @@ class TCP{
     void heartbeat();
     void connect_notice_socket();
     void notice_receiver_thread();
-
+    bool new_heartbeat_socket() ;
    ~TCP()
    {
     close(client_socket);

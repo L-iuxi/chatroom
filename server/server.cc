@@ -1731,23 +1731,63 @@ vector<pair<string, string>> DATA::get_group_applications(string group_id) {
 }
 //将消息添加到群消息列表
 bool DATA::add_group_message(string from_id, string message, string group_id, string timestamp) {
-    // 值简化为 from_id|message
+    // 值格式：from_id|message
     string value = from_id + "|" + message;
     
-    redisReply* reply = (redisReply*)redisCommand(
-        c, 
-        "ZADD chat:%s %s %s",  // score=timestamp, value=from|message
+    // 1. 开始事务
+    redisReply* reply = (redisReply*)redisCommand(c, "MULTI");
+    if (!reply || reply->type == REDIS_REPLY_ERROR) {
+        cerr << "开启事务失败" << endl;
+        if (reply) freeReplyObject(reply);
+        return false;
+    }
+    freeReplyObject(reply);
+
+    // 2. 添加消息命令
+    reply = (redisReply*)redisCommand(
+        c,
+        "ZADD chat:%s %s %s",
         group_id.c_str(),
         timestamp.c_str(),
         value.c_str()
     );
-
     if (!reply || reply->type == REDIS_REPLY_ERROR) {
-        cerr << "存储消息失败: " << (reply ? reply->str : "无响应") << endl;
+        cerr << "添加消息命令失败" << endl;
+        if (reply) freeReplyObject(reply);
+        redisCommand(c, "DISCARD"); // 丢弃事务
+        return false;
+    }
+    freeReplyObject(reply);
+
+    // 3. 修剪消息命令
+    reply = (redisReply*)redisCommand(
+        c,
+        "ZREMRANGEBYRANK chat:%s 0 -101",
+        group_id.c_str()
+    );
+    if (!reply || reply->type == REDIS_REPLY_ERROR) {
+        cerr << "修剪消息命令失败" << endl;
+        if (reply) freeReplyObject(reply);
+        redisCommand(c, "DISCARD"); // 丢弃事务
+        return false;
+    }
+    freeReplyObject(reply);
+
+    // 4. 执行事务
+    reply = (redisReply*)redisCommand(c, "EXEC");
+    if (!reply || reply->type == REDIS_REPLY_ERROR) {
+        cerr << "执行事务失败: " << (reply ? reply->str : "无响应") << endl;
         if (reply) freeReplyObject(reply);
         return false;
     }
-    
+
+    // 5. 检查执行结果
+    if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 2) {
+        cerr << "事务执行结果异常" << endl;
+        freeReplyObject(reply);
+        return false;
+    }
+
     freeReplyObject(reply);
     return true;
 }
@@ -1846,10 +1886,9 @@ vector<tuple<string, string, string>> DATA::get_read_messages(string user_id, st
         group_id.c_str()
     );
 
-    string last_read = "0"; // 默认从最早的消息开始
+    string last_read = "0";
     if (reply && reply->type == REDIS_REPLY_STRING) {
         last_read = reply->str;
-        // 验证时间戳是否为合法数字
         if (!std::all_of(last_read.begin(), last_read.end(), ::isdigit)) {
             cerr << "警告: 非法的最后阅读时间格式，重置为0: " << last_read << endl;
             last_read = "0";
@@ -1857,33 +1896,37 @@ vector<tuple<string, string, string>> DATA::get_read_messages(string user_id, st
     }
     freeReplyObject(reply);
 
-    // 2. 获取已读消息（带时间戳）
+    // 2. 获取最后阅读时间之前的50条消息（按时间正序，最旧的在前面）
     reply = (redisReply*)redisCommand(
         c,
-        "ZRANGEBYSCORE chat:%s -inf %s WITHSCORES",
+        "ZRANGEBYSCORE chat:%s 0 (%s WITHSCORES LIMIT 0 50",
         group_id.c_str(),
         last_read.c_str()
     );
 
     vector<tuple<string, string, string>> messages;
     if (reply && reply->type == REDIS_REPLY_ARRAY) {
-        for (size_t i = 0; i < reply->elements; i += 2) {
-            if (i+1 >= reply->elements) break;
-            
-            string full_message = reply->element[i]->str;
-            string timestamp = reply->element[i+1]->str;
+        if (reply->elements == 0) {
+            cout << "群组 " << group_id << " 中没有更早的历史消息" << endl;
+        } else {
+            for (size_t i = 0; i < reply->elements; i += 2) {
+                if (i+1 >= reply->elements) break;
+                
+                string full_message = reply->element[i]->str;
+                string timestamp = reply->element[i+1]->str;
 
-            // 解析 fromid 和 message
-            size_t separator = full_message.find('|');
-            if (separator != string::npos) {
-                string fromid = full_message.substr(0, separator);
-                string content = full_message.substr(separator + 1);
-                messages.emplace_back(fromid, content, timestamp);
-            } else {
-                // 处理格式错误的情况
-                cerr << "警告: 消息格式错误: " << full_message << endl;
-                messages.emplace_back("unknown", full_message, timestamp);
+                // 解析 fromid 和 message
+                size_t separator = full_message.find('|');
+                if (separator != string::npos) {
+                    string fromid = full_message.substr(0, separator);
+                    string content = full_message.substr(separator + 1);
+                    messages.emplace_back(fromid, content, timestamp);
+                } else {
+                    cerr << "警告: 消息格式错误: " << full_message << endl;
+                    messages.emplace_back("unknown", full_message, timestamp);
+                }
             }
+            cout << "获取到 " << messages.size() << " 条历史消息" << endl;
         }
     } else if (!reply) {
         cerr << "错误: Redis命令执行失败" << endl;
@@ -2183,6 +2226,7 @@ void TCP::send_m(int data_socket,string type,string message)
     j["message"] = message;
 
     string msg = j.dump();
+    cout<<"准备发送"<<msg<<endl;
     uint32_t msg_len = htonl(msg.size());
     string ext_len(4 + msg.size(), '\0');
     memcpy(ext_len.data(), &msg_len, 4);
@@ -2193,7 +2237,7 @@ void TCP::send_m(int data_socket,string type,string message)
     while (count > 0)
     {
             int len = send(data_socket, buf, count, 0);
-            cout<<"发送了数据"<<buf<<endl;
+           
             if (len < 0)
             {
                 if (errno == EAGAIN)
@@ -2250,6 +2294,8 @@ bool TCP::rec_m(string &type, string &from_id, string &to_id, string &message, i
     message = j["message"].get<string>();
     from_id = j["from_id"].get<string>();
     to_id = j["to_id"].get<string>();
+    cout<<"toid == "<<to_id;
+    cout<<"from_id == "<<from_id;
      }catch (const nlohmann::json::exception& e) {
         cerr << "JSON解析错误: " << e.what() << endl;
         cerr << "原始数据: " << json_str << endl;
@@ -2260,11 +2306,49 @@ bool TCP::rec_m(string &type, string &from_id, string &to_id, string &message, i
     return true;
 }
 
-// 辅助函数：简单验证JSON完整性
-bool is_valid_json(const string& json_str) {
-    size_t open_braces = count(json_str.begin(), json_str.end(), '{');
-    size_t close_braces = count(json_str.begin(), json_str.end(), '}');
-    return open_braces > 0 && open_braces == close_braces;
+int TCP::new_heartbeat_socket(int data_socket) 
+{
+ 
+    int heartbeat_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (heartbeat_socket == -1) {
+        cerr << "[Heartbeat] 心跳套接字创建失败" << endl;
+        return -1;
+    }
+
+    int heartbeat_port = generate_port();
+
+    sockaddr_in server_addr{};
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(heartbeat_port);
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+
+    if (bind(heartbeat_socket, (sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
+        cerr << "[Heartbeat] 心跳套接字绑定端口 " << heartbeat_port << " 失败" << endl;
+        close(heartbeat_socket);
+        return -1;
+    }
+
+    if (listen(heartbeat_socket, 1) == -1) {
+        cerr << "[Heartbeat] 心跳套接字监听失败" << endl;
+        close(heartbeat_socket);
+        return -1;
+    }
+
+    if (send(data_socket, &heartbeat_port, sizeof(heartbeat_port), 0) <= 0) {
+        cerr << "[Heartbeat] 心跳端口发送失败" << endl;
+        close(heartbeat_socket);
+        return -1;
+    }
+
+    int heartbeat_conn = accept(heartbeat_socket, nullptr, nullptr);
+    if (heartbeat_conn == -1) {
+        cerr << "[Heartbeat] 心跳连接接受失败" << endl;
+        close(heartbeat_socket);
+        return -1;
+    }
+
+    //cout << "[Heartbeat] 心跳套接字已建立，端口：" << heartbeat_port << endl;
+    return heartbeat_conn;
 }
 //创建传输文件套接字
 int TCP::new_transfer_socket(int data_socket) {
@@ -2358,6 +2442,7 @@ int Random_id(){
 
 //创建服务器套接字
 TCP::TCP():pool(10) {
+    startHeartbeatMonitor(); 
     server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (server_socket < 0) {  
         perror("Socket failed");
@@ -2468,8 +2553,13 @@ void TCP::start(DATA &redis_data) {
             pool.enqueue([this, data_socket,&redis_data, &login](){  
             if (login.login_user(data_socket, redis_data)) {
             cout<<"用户已成功登陆"<<endl;
-            startHeartbeatMonitor();
+
+            int heart_socket = new_heartbeat_socket(data_socket);
+            addSocketPair(data_socket, heart_socket);
+             
+            std::thread(&TCP::handleHeartbeat, this, heart_socket, data_socket).detach();
             this->make_choice(data_socket,redis_data);
+            
            // stopHeartbeatMonitor();
              close(data_socket);//进入登陆后的选项  
             remove_user(data_socket);
@@ -2625,6 +2715,38 @@ void TCP:: checkHeartbeats() {
             }
         }
     }
+void TCP::handleHeartbeat(int heart_socket, int data_socket) {
+    char buf[8];
+    while (true) {
+        ssize_t bytes = recv(heart_socket, buf, sizeof(buf), 0);
+        if (bytes <= 0) {
+            std::unique_lock<std::mutex> lock(heartbeat_mutex_);
+            // 心跳连接异常，直接关闭两个套接字
+            close(data_socket);
+            close(heart_socket);
+            socket_pairs_.erase(data_socket);
+            remove_user(data_socket);
+            break;
+        }
+        
+        if (strncmp(buf, "ping", 4) == 0) {
+            updateHeartbeat(data_socket);
+            cout<<"收到心跳"<<endl;
+            //send(heart_socket, "PONG", 4, 0);
+        }
+    }
+}
+//更新在线时间
+void TCP::updateHeartbeat(int data_socket) {
+    std::unique_lock<std::mutex> lock(heartbeat_mutex_);
+    if (socket_pairs_.count(data_socket)) {
+        socket_pairs_[data_socket].last_heartbeat = std::chrono::steady_clock::now();
+    }
+}
+void TCP::addSocketPair(int data_socket, int heart_socket) {
+    std::unique_lock<std::mutex> lock(heartbeat_mutex_);
+    socket_pairs_[data_socket] = {data_socket, heart_socket, std::chrono::steady_clock::now()};
+}
 //关闭所有在线的客户端数据套接字
 TCP:: ~TCP(){
      std::cerr << "TCP对象被析构，socket=" << server_socket << std::endl;
@@ -2633,7 +2755,7 @@ TCP:: ~TCP(){
             close(close_socket);
             cout<<"已关闭套接字"<<close_socket<<endl;
         }
-     //stopHeartbeatMonitor();
+        stopHeartbeatMonitor();
         close(server_socket);
     }
 
@@ -2778,10 +2900,28 @@ bool LOGIN ::login_user(int data_socket,DATA &redis_data){
         close(data_socket);
         return false;
         }
-    string message = "用户:"+username+ "登陆成功啦！";
-    send(data_socket, message.c_str(), message.size(), 0);
+    std::string message = "success";
+
+     size_t byte_len = message.size();
+     send(data_socket, message.c_str(), message.size(), 0);
     
+     char buffer3[1024];
+     int bytes_rec3= recv(data_socket, buffer3, 1024, 0);
+    if(bytes_rec3 < 0)
+    {
+        cout<<"接收失败"<<endl;
+         return false;
+    }
+    else{
+        buffer3[bytes_rec3] = '\0'; 
+        if(strcmp(buffer3, "ok") == 0)
+        {
+            cout<<"ok"<<endl;
      
+const char* msg = username.c_str();  // 获取C风格字符串
+send(data_socket, msg, strlen(msg), 0);  // 发送
+        }
+    }
     if (server->logged_users.find(data_socket) == server->logged_users.end()) {
             
         server->logged_users[data_socket] = user_id;
@@ -3084,11 +3224,13 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
             cout<<"收到命令：下载群文件"<<endl;
              group.accept_file_group(*this,data_socket,from_id,to_id,message,redis_data);
               //recived_message(redis_data,find_user_id(data_socket),data_socket);
-        }else if(type == "heart")
-        {
-            cout<<"接收到客户端心跳监测"<<endl;
-             updateHeartbeat(data_socket);
-        }else if(type == "quit_chat_group")
+        }
+        // else if(type == "heart")
+        // {
+        //     cout<<"接收到客户端心跳监测"<<endl;
+        //      updateHeartbeat(data_socket);
+        // }
+        else if(type == "quit_chat_group")
         {
             cout<<"收到命令：退出群聊天"<<endl;
              group.quit_chat(*this,data_socket,from_id,to_id,message,redis_data);
@@ -3719,7 +3861,13 @@ void FRI::refuse_friend_request(TCP &client,int data_socket,string to_id,string 
 }
 //向好友发送消息
 void FRI:: send_message(TCP &client,int data_socket,string from_id,string to_id,string message,DATA &redis_data){
-   if(redis_data.is_friend(from_id,to_id) &&!redis_data.is_friend(to_id,from_id))
+    if(!redis_data.is_friend(from_id,to_id) &&!redis_data.is_friend(to_id,from_id))
+    {
+        string notice = RED_TEXT("你已被删除！");
+    client.send_m(data_socket,"other", notice);
+    return;
+    }
+    if(redis_data.is_friend(from_id,to_id) &&!redis_data.is_friend(to_id,from_id))
    {
     string notice = RED_TEXT("你已被对方屏蔽!");
     client.send_m(data_socket,"other", notice);
@@ -4142,7 +4290,7 @@ void GRO::printChatPairsTable() {
 }
 // 检查a对应的b是否也对应a
 bool GRO:: check_chat(string a,string b) {
-     printChatPairsTable();
+    // printChatPairsTable();
     auto it_a = group_pairs.find(a);
     if (it_a == group_pairs.end() || it_a->second != b) {
         //cout << "键 \"" << a << "\" 不指向值 \"" << b << "\"" << std::endl;
@@ -4156,10 +4304,10 @@ bool GRO::delete_chat_pair(string first) {
     auto it = group_pairs.find(first);
     if (it != group_pairs.end()) {
         group_pairs.erase(it);
-        std::cout << "已删除键为 \"" << first << "\" 的键值对" << std::endl;
+      //  std::cout << "已删除键为 \"" << first << "\" 的键值对" << std::endl;
         return true;
     }
-    std::cout << "未找到键为 \"" << first << "\" 的键值对" << std::endl;
+    //std::cout << "未找到键为 \"" << first << "\" 的键值对" << std::endl;
     return false;
 }
 void GRO::refuse_group_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data)
@@ -4195,7 +4343,12 @@ void GRO::refuse_group_member(TCP &client,int data_socket, string from_id, strin
 void GRO::add_group_message(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data)
 {
     //判断一下再不在群聊，不在发不在群聊内
-    
+    if(!redis_data.is_in_group(to_id,from_id))
+    {
+        string message =RED_TEXT("你不在群聊内") ;
+        client.send_m(data_socket,"other", message);
+        return;
+    }
     string time = getCurrentTimestamp();
     //发送消息的时候还在群聊里面，更新一边最后时间
     

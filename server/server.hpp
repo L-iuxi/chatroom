@@ -54,7 +54,15 @@ class DATA{
     private:
       bool checkTransactionResult(redisReply* reply);
     public:
+
     redisContext* c;
+    ~DATA() {
+        if (c) {
+            redisFree(c);
+            c = nullptr;
+        }
+    }
+
     redisContext* data_create();
     bool check_username_duplicate(string username);//检查用户名是否重复
     bool add_user(string user_id_str,string username,string password);//在数据库中添加用户数据
@@ -136,7 +144,16 @@ class TCP{
     Threadpool pool;
      std::mutex redis_mutex_;  // 保护Redis数据访问
     std::mutex notice_mutex_;
-     
+      struct SocketPair {
+        int data_socket;
+        int heart_socket;
+        std::chrono::steady_clock::time_point last_heartbeat;
+    };
+    
+    std::unordered_map<int, SocketPair> socket_pairs_; // 以data_socket为key
+    std::mutex heartbeat_mutex_;
+    std::thread monitor_thread_;
+    bool monitoring_ = false;
     public:
      static constexpr size_t MAX_JSON_SIZE = (10 * 1024 * 1024);
     TCP();//创建服务器套接字
@@ -147,11 +164,8 @@ class TCP{
     int user_count;  
     unordered_map<int, string> logged_users; 
     std::unordered_map<int, std::chrono::steady_clock::time_point> client_last_heartbeat_;
-    mutable std::shared_mutex heartbeat_mutex_;
-    std::atomic<bool> monitoring_{false};
-    std::thread monitor_thread_;
     std::atomic<bool> running_{true}; 
-    std::thread notice_thread_;
+
     
     string find_user_id(int socket);
     void recived_messages(DATA &redis_data,string user_id,int data_socket);
@@ -164,10 +178,12 @@ class TCP{
     int find_socket(const std::string& user_id);
     void remove_user(int data_socket);
     int new_transfer_socket(int client_socket);
-      void updateHeartbeat(int client_socket) {
-        std::unique_lock lock(heartbeat_mutex_);
-        client_last_heartbeat_[client_socket] = std::chrono::steady_clock::now();
-    }
+    //   void updateHeartbeat(int client_socket) {
+    //     std::unique_lock lock(heartbeat_mutex_);
+    //     client_last_heartbeat_[client_socket] = std::chrono::steady_clock::now();
+    // }
+    void updateHeartbeat(int data_socket);
+    void addSocketPair(int data_socket, int heart_socket);
     void startHeartbeatMonitor();
     void stopHeartbeatMonitor();
     void checkHeartbeats();
@@ -182,6 +198,8 @@ class TCP{
     string  get_userid_by_noticesocket(int sockfd);
     //发送实时消息
     void send_notice(string from_id,string to_id,string message,DATA &redis_data);
+    int new_heartbeat_socket(int data_socket);
+    void handleHeartbeat(int heart_socket, int data_socket) ;
 };
 class LOGIN{
    private:

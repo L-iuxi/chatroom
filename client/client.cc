@@ -111,6 +111,9 @@ bool TCP::rec_m(string &type, string &message)
     if(ret == 0)
     {
         cout <<"连接断开"<<endl;
+        close(data_socket);
+        close(notice_socket);
+        close(heart_socket);
     }
     
     string json_str;
@@ -152,15 +155,47 @@ void TCP:: heartbeat()
     std::unique_lock<std::mutex> lock(mtx);
     cv.wait(lock, []{ return !is_paused; });
 
-    string type = "heart";
+    // string type = "heart";
     string message = "ping";
-    string to_id = "0";
-    string from_id = "0";
-    send_m(type,from_id,to_id,message);
+     send(heart_socket, message.c_str(), message.size(), 0); 
+    // string to_id = "0";
+    // string from_id = "0";
+    // send_m(type,from_id,to_id,message);
 
     }
 }
 
+bool TCP::new_heartbeat_socket() 
+{
+    int heart_port;
+    if (recv(data_socket, &heart_port, sizeof(heart_port), 0) <= 0) {
+        cerr << "[Heartbeat] Failed to receive heartbeat port" << endl;
+        return false;
+    }
+
+    heart_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (heart_socket == -1) {
+        cerr << "[Heartbeat] Failed to create socket" << endl;
+        return false;
+    }
+
+    sockaddr_in server_addr{};
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(heart_port);
+    server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
+
+    if (connect(heart_socket, (sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
+        cerr << "[Heartbeat] Failed to connect to port " << heart_port << endl;
+        close(heart_socket);
+        return false;
+    }
+
+    //cout << "[Heartbeat] Connected to port: " << heart_port << endl;
+    heartbeat_received = true;
+    thread(&TCP::heartbeat, this).detach();
+
+    return true;
+}
 void TCP::new_socket(){
     int data_port;
 
@@ -190,13 +225,13 @@ void TCP::new_socket(){
             close(this->data_socket);
             return;
     }
-    this->heart_socket = socket(AF_INET,SOCK_STREAM,0);
-    if(connect(this->heart_socket,(struct sockaddr*)&server_addr,sizeof(server_addr)) == -1)
-    {
-        cerr << "Failed to connect to data port." << endl;
-            close(this->heart_socket);
-            return;
-    }
+    // this->heart_socket = socket(AF_INET,SOCK_STREAM,0);
+    // if(connect(this->heart_socket,(struct sockaddr*)&server_addr,sizeof(server_addr)) == -1)
+    // {
+    //     cerr << "Failed to connect to data port." << endl;
+    //         close(this->heart_socket);
+    //         return;
+    // }
    // cout << "Connected to data port: " << data_port << endl;
      
  }
@@ -318,52 +353,82 @@ void LOGIN::register_user(TCP& client) {
         cout << "接收数据失败!" << endl;
     }
 }
-bool LOGIN::login_user(TCP& client){
+bool LOGIN::login_user(TCP& client) {
     string user_id;
     string password;
     char buffer[1024] = {0};
-   
+
+    // 1. 输入账号
     PRINT_GREEN("请输入账号");
-    cin>>user_id;
-    send(client.data_socket, user_id.c_str(), user_id.length(), 0);  
-    
+    cin >> user_id;
+    if(send(client.data_socket, user_id.c_str(), user_id.length(), 0) <= 0) {
+        cerr << "账号发送失败" << endl;
+        return false;
+    }
+
+    // 2. 输入密码
     PRINT_GREEN("请输入密码");
-    cin>>password;
-    send(client.data_socket, password.c_str(), password.length(), 0);  
-    
-    int bytes_received = recv(client.data_socket,buffer, sizeof(buffer) - 1, 0);
-    if (bytes_received > 0) {
-        buffer[bytes_received] = '\0';
-          
-       // cout << "接收到服务器发来的字符串："<<buffer << endl;
-        string recover = string(buffer,bytes_received);
-        string last6 = recover.substr(recover.length() - 6);
-        if(last6 == "啦！")
-        {
-        //cout<<"截取的字符串为"<<last6<<endl;
-        this->username = extractUsername(recover);
-        //cout<<"用户名为"<<this->username<<endl;
-        this->user_id = user_id;
-        this->passward = passward;  
-            return true;
-        }else 
-        {
-        //cout<<"截取的字符串为"<<last6<<endl;
-        cout<<recover<<endl;
+    cin >> password;
+    if(send(client.data_socket, password.c_str(), password.length(), 0) <= 0) {
+        cerr << "密码发送失败" << endl;
+        return false;
+    }
+
+    // 3. 接收登录响应
+    int bytes_received = recv(client.data_socket, buffer, sizeof(buffer) - 1, 0);
+    if (bytes_received <= 0) {
+        cerr << "接收登录响应失败" << endl;
+        return false;
+    }
+    buffer[bytes_received] = '\0';
+    string response(buffer, bytes_received);
+
+    // 4. 处理服务器响应
+    if (response == "用户不存在!") {
+        cerr << "错误: " << response << endl;
+        return false;
+    }
+    else if (response == "密码错误TAT") {
+        cerr << "错误: " << response << endl;
+        return false;
+    }
+    else if (response == "请勿重复登陆") {
+        cerr << "错误: " << response << endl;
+        return false;
+    }
+    else if (response == "success") {
+        // 发送确认
+        const char* ack = "ok";
+        if(send(client.data_socket, ack, strlen(ack), 0) <= 0) {
+            cerr << "确认发送失败" << endl;
             return false;
         }
-    } else {
-        cout << "接收数据失败!" << endl;
+        char buffer2[1024];
+        // 接收用户名
+        int bytes_received2 = recv(client.data_socket, buffer2, sizeof(buffer2) - 1, 0);
+        if (bytes_received2 <= 0) {
+            cerr << "接收用户名失败" << endl;
+            return false;
+        }
+        buffer2[bytes_received2] = '\0';
+       // cout<<buffer2<<endl;
+        this->username = string(buffer2, bytes_received2);
+        this->user_id = user_id;
+        this->passward = password;
+
+        //cout << "登录成功！欢迎, " << this->username << endl;
+        return true;
     }
-    return false;
- }
+    else {
+        cerr << "未知响应: " << response << endl;
+        return false;
+    }
+}
 void TCP::recv_server_(int data_socket)
     {
     string message,type;
-    cout<<"准备接收"<<endl;
     rec_m(type,message);
-    cout<<"已接收"<<endl;
-
+    
     
     cout<<"***************离线消息***************"<<endl;
     cout<<message<<endl;
@@ -422,7 +487,8 @@ void TCP::notice_receiver_thread() {
     }
   //登陆成功后进入选择
 void FRI:: make_choice(TCP &client,LOGIN &login){
-
+    //心跳
+    client.new_heartbeat_socket() ;
     //开始接收线程
     client.connect_notice_socket();
     //只作为离线消息接受一次
@@ -435,6 +501,7 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
     string b;
     main_page(login.getuser_id(),login.getusername());
    while (!(cin >> command)) {
+    clear_screen() ;
             cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
            
              cin.clear();
@@ -453,6 +520,7 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
     switch(command){
         case 1:
          cout<<"当前操作：私聊某好友"<<endl;
+         see_all_friends(client,login.getuser_id());
         choose_command(client,login);
       
         break;
@@ -478,6 +546,7 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
         break;
           case 6:
          cout<<"当前操作：进入群聊"<<endl;
+          group.see_all_group(client,login); 
          open_group(group,client,login);
          //client.recv_server(client.data_socket);
         break;
@@ -493,6 +562,7 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
          close(client.notice_socket);
         break;
         default:  
+        clear_screen() ;
             cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
             break;
     }   
@@ -504,6 +574,7 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
  }
 void FRI:: choose_command(TCP &client, LOGIN &login)
 {
+    
     string to_id;
     cout<<"请选择好友"<<endl;
     cin>>to_id;
@@ -515,22 +586,29 @@ void FRI:: choose_command(TCP &client, LOGIN &login)
      client.rec_m(type,buffer);
      if(buffer != "成功")
      {
-        cout<<buffer<<endl;
-         type = "nothing";
-        message = "0"; 
-        client.send_m(type,from_id,to_id,message);
+        PRINT_RED(buffer+"\n");
         return;
      }
-    
+    clear_screen() ;
     while(1)
     {
     int a;
     print_block();
     //cin.ignore();
-    cin>>a;
+    // cin>>a;
+    while (!(cin >> a)) {
+    clear_screen() ;
+            cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
+           
+             cin.clear();
+              cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+             print_block();
+        }
+        
     switch(a)
     {
         case 1:
+        
         cout<<"当前操作：发送消息"<<endl;
         open_block(client,login,to_id);
         break;
@@ -554,12 +632,14 @@ void FRI:: choose_command(TCP &client, LOGIN &login)
         break;
         case -1:
         break;
-        default:  
+        default: 
+         clear_screen() ; 
             cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
             break;
     }
     if(a == -1)
     {
+    clear_screen() ;
     break;
     }
  }
@@ -825,13 +905,18 @@ void FRI:: shidld_friend(TCP &client,LOGIN &login)
 //打开聊天框
 void FRI:: send_message_no(TCP &client,string from_id,string to_id)
 {
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    //cin.ignore(numeric_limits<streamsize>::max(), '\n');
         // 等待发送消息的信号
     while (chat_active.load()) {
     string message;
     string type = "send_message_no";
     if (!chat_active.load()) break;  
+    
     getline(cin, message);
+    if(message.size() > 256)
+    {
+        cout<<"消息太长了！"<<endl;
+    }
     if(message == "-1")
     {
     message = "quit_chat";
@@ -867,13 +952,23 @@ void FRI ::receive_log(TCP& client,string from_id,string to_id)
     if(buffer == "quit")
     {
          chat_active = false;
+         clear_screen() ;
          break;
-    }else if(buffer == "你已被对方屏蔽!")
-    {
-        chat_active = false;
-        break;
     }
-    cout<<"\n\033[1;36m["<<type<<"]\033[0m"<<buffer;
+    // else if(buffer == "你已被对方屏蔽!")
+    // {
+    //     chat_active = false;
+    //     PRINT_RED("正在退出聊天......");
+    //     break;
+    // }else if(buffer == "你已被删除！")
+    // {
+    //     chat_active = false;
+    //     PRINT_RED("正在退出聊天......");
+    //     break;
+    // }
+    cout<<endl;
+    
+    cout<<"\033[1;36m["<<type<<"]\033[0m"<<buffer<<endl;
   //  memset(buffer, 0, sizeof(buffer)); 
        // cout<<buffer<<endl;
         
@@ -1369,7 +1464,16 @@ void GRO::open_group_owner(TCP &client,LOGIN &login,int &m,string group_id)
     int command = 0; 
     string b;
     main_page_owner(login.getuser_id(),login.getusername());
-    cin>>command;
+    while (!(cin >> command)) {
+    clear_screen() ;
+            cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
+           
+             cin.clear();
+              cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+           main_page_owner(login.getuser_id(),login.getusername());
+        }
+        
+   cin.ignore(numeric_limits<streamsize>::max(), '\n'); 
     //cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     //cin.clear();
     string type = "";
@@ -1429,11 +1533,13 @@ void GRO::open_group_owner(TCP &client,LOGIN &login,int &m,string group_id)
          //client.recv_server(client.data_socket);
         break;
         case -1:
+        clear_screen() ;
         cout<<"当前操作：退出"<<endl;
         m =1;
         return;
         break;
         default:  
+        clear_screen() ;
             cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
             
         break;
@@ -1520,13 +1626,15 @@ void GRO::receive_group_message(TCP& client,string from_id,string group_id)
     {
         group_active = false;
         break;
-    }else if(buffer == "你不在群聊内")
-    {
-             cout<<buffer<<endl;
-            chat_active = false;
-            //break;
     }
-        
+    // else if(buffer == "你不在群聊内")
+    // {
+    //     cout<<buffer<<endl;
+    //     chat_active = false;
+    //     PRINT_RED("正在退出群聊......");
+    //     break;
+    // }
+        cout<<endl;
        cout << "\033[1;36m[" << type << "]\033[0m" << buffer << endl;
     }
  
@@ -1537,10 +1645,16 @@ void GRO::open_group_admin(TCP &client,LOGIN &login,int &m,string group_id)
     int command = 0; 
     string b;
     main_page_admin(login.getuser_id(),login.getusername());
-   
-    cin>>command;
-    cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    cin.clear();
+    while (!(cin >> command)) {
+    clear_screen() ;
+            cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
+           
+             cin.clear();
+              cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+           main_page_admin(login.getuser_id(),login.getusername());
+        }
+        
+   cin.ignore(numeric_limits<streamsize>::max(), '\n'); 
     string type = "";
     string to_id = "";
     string from_id = "";
@@ -1590,10 +1704,12 @@ void GRO::open_group_admin(TCP &client,LOGIN &login,int &m,string group_id)
         break;
         case -1:
         cout<<"当前操作：退出"<<endl;
+        clear_screen() ;
         m = 1;
         return;
         break;
         default:  
+        clear_screen() ;
             cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
             break;
 
@@ -1611,8 +1727,15 @@ void GRO::open_group_member(TCP &client,LOGIN &login,int &m,string group_id)
     int command = 0; 
     string b;
     main_page_member(login.getuser_id(),login.getusername());
-   
-    cin>>command;
+     while (!(cin >> command)) {
+    clear_screen() ;
+            cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
+           
+             cin.clear();
+              cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+           main_page_member(login.getuser_id(),login.getusername());
+        }
+        
     cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     cin.clear();
     string type = "";
@@ -1657,10 +1780,12 @@ void GRO::open_group_member(TCP &client,LOGIN &login,int &m,string group_id)
         break;
         case -1:
         cout<<"当前操作：退出"<<endl;
+        clear_screen() ;
         m =1;
         return;
         break;
         default:  
+        clear_screen() ;
             cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
     
         break;
@@ -2139,12 +2264,15 @@ send(client.getClientSocket(), message, strlen(message), 0);
 client.new_socket();
 if(login.login_user(client))
 {
-    cout<<"登陆成功!"<<endl;
+  //  cout<<"登陆成功!"<<endl;
+  clear_screen() ;
     thread heartbeat_thread(&TCP::heartbeat, &client);
     heartbeat_thread.detach();
     
     friends.make_choice(client,login);
    heartbeat_received = false;
+//    close(heart_socket);
+//    close(notice_socket);
 }
 }else if(command == 3)
 {
