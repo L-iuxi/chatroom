@@ -2618,6 +2618,7 @@ void TCP::start(DATA &redis_data) {
             
            // stopHeartbeatMonitor();
              close(data_socket);//进入登陆后的选项  
+             close(heart_socket);
             remove_user(data_socket);
             }
            // close(data_socket);
@@ -2695,7 +2696,7 @@ int TCP::generate_port() {
                 cerr << "绑定端口失败: " << strerror(errno) << endl;
                 return -1;  // 非"端口占用"错误，直接返回失败
             }
-            // 如果是 EADDRINUSE（端口被占用），继续循环生成新端口
+         
         }
     }
 }
@@ -2812,10 +2813,13 @@ void TCP::handleHeartbeat(int heart_socket, int data_socket) {
         if (bytes <= 0) {
             std::unique_lock<std::mutex> lock(heartbeat_mutex_);
             // 心跳连接异常，直接关闭两个套接字
-            close(data_socket);
-            close(heart_socket);
+            
             socket_pairs_.erase(data_socket);
             remove_user(data_socket);
+            std::cout << "正在关闭 data_socket=" << data_socket 
+          << ", heart_socket=" << heart_socket << std::endl;
+            close(data_socket);
+            close(heart_socket);
             break;
         }
         
@@ -2828,6 +2832,7 @@ void TCP::handleHeartbeat(int heart_socket, int data_socket) {
 }
 //更新在线时间
 void TCP::updateHeartbeat(int data_socket) {
+    cout<<"已更新客户端在线时间"<<endl;
     std::unique_lock<std::mutex> lock(heartbeat_mutex_);
     if (socket_pairs_.count(data_socket)) {
         socket_pairs_[data_socket].last_heartbeat = std::chrono::steady_clock::now();
@@ -3146,6 +3151,7 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
     {
         if(!rec_m(type,from_id,to_id,message,data_socket))
         {
+            cout<<"客户端已断开"<<endl;
             break;
         }
         if(type == "send_add_friends_request")
@@ -3659,6 +3665,7 @@ void FRI::shield_friend(TCP &client,int data_socket,string from_id,string to_id,
    client.send_m(data_socket,"other",recover);
 }
 void FRI::store_chat_Pair(string first, string second) {
+    std::lock_guard<std::mutex> lock(pairs_mutex);
     group_pairs[first] = second;
     std::cout << "已存储: \"" << first << "\" -> \"" << second << "\"" << std::endl;
 }
@@ -3686,6 +3693,7 @@ void FRI::printChatPairsTable() {
 // 检查a对应的b是否也对应a
 bool FRI:: check_chat(string a,string b) {
    //  printChatPairsTable();
+    std::lock_guard<std::mutex> lock(pairs_mutex);
     auto it_a = group_pairs.find(a);
     if (it_a == group_pairs.end() || it_a->second != b) {
         //cout << "键 \"" << a << "\" 不指向值 \"" << b << "\"" << std::endl;
@@ -3702,6 +3710,7 @@ bool FRI:: check_chat(string a,string b) {
     return true;
 }
 bool FRI::delete_chat_pair(string first) {
+     std::lock_guard<std::mutex> lock(pairs_mutex);
     auto it = group_pairs.find(first);
     if (it != group_pairs.end()) {
         group_pairs.erase(it);
@@ -3745,12 +3754,12 @@ void FRI::open_block(TCP &client, int data_socket, string from_id, string to_id,
     }
     
     // 按时间戳排序
-    std::sort(all_messages.begin(), all_messages.end(), [](const string& a, const string& b) {
+   std::stable_sort(all_messages.begin(), all_messages.end(), 
+    [](const string& a, const string& b) {
         size_t pipe_pos_a = a.rfind('|');
         size_t pipe_pos_b = b.rfind('|');
-        string timestamp_a = a.substr(pipe_pos_a + 1);
-        string timestamp_b = b.substr(pipe_pos_b + 1);
-        return std::stoll(timestamp_a) < std::stoll(timestamp_b);
+        return std::stoll(a.substr(pipe_pos_a + 1)) < 
+               std::stoll(b.substr(pipe_pos_b + 1));
     });
     
     // 只保留最新的50条
@@ -3767,9 +3776,9 @@ void FRI::open_block(TCP &client, int data_socket, string from_id, string to_id,
         
         // 判断消息方向
         if (msg.find("messages:" + to_id + ":" + from_id) != string::npos) {
-            recover += "\033[0;36m[" + username2 + "]:\033[0m" + content + "\n";
+            recover += "\033[0;36m[" + username1 + "]:\033[0m" + content + "\n";
         } else {
-            recover += content + ":[" + username1 + "]\n";
+            recover += content + ":[" + username2 + "]\n";
         }
     }
     

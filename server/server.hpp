@@ -223,6 +223,7 @@ class FRI{
     FRI(TCP* server_instance) {
         server = server_instance;
     }
+     std::mutex pairs_mutex;
     //添加好友
    // void FRI::send_add_resquest(int data_socket,string to_id,string from_id,string message,DATA &redis_data)
    void send_add_request(TCP &client,int data_socket,string to_id,string from_id,string message,DATA &redis_data);

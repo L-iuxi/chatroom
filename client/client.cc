@@ -111,9 +111,9 @@ bool TCP::rec_m(string &type, string &message)
     if(ret == 0)
     {
         cout <<"连接断开"<<endl;
-        close(data_socket);
-        close(notice_socket);
-        close(heart_socket);
+        close(this->data_socket);
+        close(this->notice_socket);
+        close(this->heart_socket);
     }
     
     string json_str;
@@ -561,7 +561,7 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
         client.send_m(type,from_id,to_id,message); 
         close(client.data_socket);
         close(client.heart_socket);
-         close(client.notice_socket);
+        close(client.notice_socket);
         break;
         default:  
         clear_screen() ;
