@@ -473,7 +473,10 @@ void TCP::notice_receiver_thread() {
                     close(heart_socket);
                     break;
                 } else {
-                    std::cerr << "通知接收错误: " << strerror(errno) << std::endl;
+                    // std::cerr << "通知接收错误: " << strerror(errno) << std::endl;
+                    close(data_socket);
+                    close(notice_socket);
+                    close(heart_socket);
                 }
                 continue;
             }else{
@@ -503,9 +506,8 @@ void FRI:: make_choice(TCP &client,LOGIN &login){
    while (!(cin >> command)) {
     clear_screen() ;
             cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
-           
-             cin.clear();
-              cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+            cin.clear();
+            cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
             main_page(login.getuser_id(), login.getusername()); 
         }
         
@@ -599,9 +601,8 @@ void FRI:: choose_command(TCP &client, LOGIN &login)
     while (!(cin >> a)) {
     clear_screen() ;
             cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
-           
-             cin.clear();
-              cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+            cin.clear();
+            cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
              print_block();
         }
         

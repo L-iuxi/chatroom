@@ -121,7 +121,7 @@ class DATA{
     vector<pair<string, string>> get_unread_messages(string user_id, string group_id) ;//获取未读信息
     vector<pair<string, string>> get_unnotice_messages(string user_id, string group_id);//获取未通知的消息
     bool add_group_message(string from_id, string message, string group_id, string timestamp);//添加消息
-    vector<tuple<string, string, string>> get_read_messages(string user_id, string group_id) ;//获取已读历史消息
+    vector<tuple<string, string, string>> get_read_messages(string user_id, string group_id, int count);//获取已读历史消息
     bool add_file_to_unread_list(string group_id,string from_id,string filename);//把文件添加到群所有成员未读列表
     bool remove_unread_file(string group_id,string user_id,string file_value);//移除群里某成员的未读文件列表
     vector<string> get_unread_file_group(string group_id,string user_id);//获取群里某成员的未读文件

@@ -657,111 +657,180 @@ bool DATA::delete_message_logs(string user_id) {
     if (reply2) freeReplyObject(reply2);
     return success;
 }
-//把所有的来自fromid的给toid的未读消息找出来,不改为已读
-bool DATA::see_all_other_message(string from_id,string to_id,vector<string>& messages)
-{
-    redisReply* reply = (redisReply*)redisCommand(c, "KEYS messages:%s:%s",to_id.c_str(),from_id.c_str());
-   
+bool DATA::see_all_other_message(string from_id, string to_id, vector<string>& messages) {
+    string list_key = "messages:" + from_id + ":" + to_id;
+    
+    // 获取最新的100条消息
+    redisReply* reply = (redisReply*)redisCommand(c, "LRANGE %s %d %d", 
+        list_key.c_str(), 
+        -100, -1);
+    
     if (!reply || reply->type == REDIS_REPLY_ERROR) {
-        freeReplyObject(reply);
+        if (reply) freeReplyObject(reply);
         return false;
     }
-    const int MAX_MESSAGES = 50;
-    int message_count = 0;
-    for (size_t i = 0; i < reply->elements && message_count < MAX_MESSAGES; i++) {
-        std::string key = reply->element[i]->str;
+
+    for (size_t i = 0; i < reply->elements; i++) {
+        string message = reply->element[i]->str;
+        size_t pipe_pos1 = message.find('|');
+        size_t pipe_pos2 = message.find('|', pipe_pos1 + 1);
         
-        //  获取该键下的所有消息
-        redisReply* msg_reply = (redisReply*)redisCommand(c, "LRANGE %s %d %d", 
-            key.c_str(), 
-            0, 
-            MAX_MESSAGES - message_count - 1);
-        if (!msg_reply || msg_reply->type == REDIS_REPLY_ERROR) {
-             message_count += msg_reply->elements;
-            freeReplyObject(msg_reply);
-            continue;
+        if (pipe_pos1 != string::npos && pipe_pos2 != string::npos) {
+            string content = message.substr(0, pipe_pos1);
+            string status = message.substr(pipe_pos1 + 1, pipe_pos2 - pipe_pos1 - 1);
+            string timestamp = message.substr(pipe_pos2 + 1);
+            
+            string formatted_message = delete_space(content) + "|" + timestamp;
+            messages.push_back(formatted_message);
         }
-
-        //  检查每条消息的状态
-        for (size_t j = 0; j < msg_reply->elements; j++) {
-            string message = msg_reply->element[j]->str;
-            size_t pipe_pos1 = message.find('|');  // Find first pipe for separating content and status
-            size_t pipe_pos2 = message.find('|', pipe_pos1 + 1); 
-            if (pipe_pos1 != std::string::npos && pipe_pos2 != std::string::npos) {
-                string content = message.substr(0, pipe_pos1);
-                string status = message.substr(pipe_pos1 + 1, pipe_pos2 - pipe_pos1 - 1);
-                 string timestamp = message.substr(pipe_pos2 + 1);
-                
-                // if (status == "unread") {
-                    // 如果是未读消息，保存fromid和消息内容
-                   string m=delete_space(content);
-                    string formatted_message =  m+ "|" +timestamp;
-                    messages.push_back(formatted_message);
-                    
-                    // string new_message = content + "|read";
-                    // redisCommand(c, "LSET %s %d %s", key.c_str(), j, new_message.c_str());
-                // }
-            }
-        }
-
-        freeReplyObject(msg_reply);
     }
 
     freeReplyObject(reply);
     return true;
 }
-//找到from_id给toid的所有消息，并且改为已读
-bool DATA::see_all_my_message(string from_id,string to_id,vector<string>& messages)
-{
-    redisReply* reply = (redisReply*)redisCommand(c, "KEYS messages:%s:%s",to_id.c_str(),from_id.c_str());
-   
+
+bool DATA::see_all_my_message(string from_id, string to_id, vector<string>& messages) {
+    string list_key = "messages:" + from_id + ":" + to_id;
+    
+    // 获取最新的100条消息
+    redisReply* reply = (redisReply*)redisCommand(c, "LRANGE %s %d %d", 
+        list_key.c_str(), 
+        -100, -1);
+    
     if (!reply || reply->type == REDIS_REPLY_ERROR) {
-        freeReplyObject(reply);
+        if (reply) freeReplyObject(reply);
         return false;
     }
-     const int MAX_MESSAGES = 50;
-    int remaining = MAX_MESSAGES;
-    for (size_t i = 0; i < reply->elements&& remaining > 0; i++) {
-        std::string key = reply->element[i]->str;
-        
-        //  获取该键下的所有消息
-          redisReply* msg_reply = (redisReply*)redisCommand(
-            c, "LRANGE %s %d %d", 
-            key.c_str(), 
-            0, 
-            remaining - 1  // 确保总数不超过MAX_MESSAGES
-        );
-        if (!msg_reply || msg_reply->type == REDIS_REPLY_ERROR) {
-            freeReplyObject(msg_reply);
-            continue;
-        }
 
-        //  检查每条消息的状态
-        for (size_t j = 0; j < msg_reply->elements; j++) {
-            string message = msg_reply->element[j]->str;
-           size_t pipe_pos1 = message.find('|');  // Find first pipe for separating content and status
-            size_t pipe_pos2 = message.find('|', pipe_pos1 + 1); 
-            if (pipe_pos1 != std::string::npos && pipe_pos2 != std::string::npos) {
-                string content = message.substr(0, pipe_pos1);
-               string status = message.substr(pipe_pos1 + 1, pipe_pos2 - pipe_pos1 - 1);
-                 string timestamp = message.substr(pipe_pos2 + 1);
+    for (size_t i = 0; i < reply->elements; i++) {
+        string message = reply->element[i]->str;
+        size_t pipe_pos1 = message.find('|');
+        size_t pipe_pos2 = message.find('|', pipe_pos1 + 1);
+        
+        if (pipe_pos1 != string::npos && pipe_pos2 != string::npos) {
+            string content = message.substr(0, pipe_pos1);
+            string status = message.substr(pipe_pos1 + 1, pipe_pos2 - pipe_pos1 - 1);
+            string timestamp = message.substr(pipe_pos2 + 1);
+            
+            // 如果是未读消息，标记为已读
             if (status == "unread") {
-             string new_message = content + "|read|"+timestamp;
-                    redisCommand(c, "LSET %s %d %s", key.c_str(), j, new_message.c_str());
-                }
-                   string m=delete_space(content);
-                    string formatted_message =  m+ "|" +timestamp;
-                    messages.push_back(formatted_message);
-                    remaining--;
+                string new_message = content + "|read|" + timestamp;
+                redisCommand(c, "LSET %s %d %s", list_key.c_str(), i, new_message.c_str());
             }
+            
+            string formatted_message = delete_space(content) + "|" + timestamp;
+            messages.push_back(formatted_message);
         }
-
-        freeReplyObject(msg_reply);
     }
 
     freeReplyObject(reply);
     return true;
 }
+// //把所有的来自fromid的给toid的未读消息找出来,不改为已读
+// bool DATA::see_all_other_message(string from_id,string to_id,vector<string>& messages)
+// {
+//     redisReply* reply = (redisReply*)redisCommand(c, "KEYS messages:%s:%s",to_id.c_str(),from_id.c_str());
+   
+//     if (!reply || reply->type == REDIS_REPLY_ERROR) {
+//         freeReplyObject(reply);
+//         return false;
+//     }
+//     const int MAX_MESSAGES = 50;
+//     int message_count = 0;
+//     for (size_t i = 0; i < reply->elements && message_count < MAX_MESSAGES; i++) {
+//         std::string key = reply->element[i]->str;
+        
+//         //  获取该键下的所有消息
+//         redisReply* msg_reply = (redisReply*)redisCommand(c, "LRANGE %s %d %d", 
+//             key.c_str(), 
+//             0, 
+//             MAX_MESSAGES - message_count - 1);
+//         if (!msg_reply || msg_reply->type == REDIS_REPLY_ERROR) {
+//              message_count += msg_reply->elements;
+//             freeReplyObject(msg_reply);
+//             continue;
+//         }
+
+//         //  检查每条消息的状态
+//         for (size_t j = 0; j < msg_reply->elements; j++) {
+//             string message = msg_reply->element[j]->str;
+//             size_t pipe_pos1 = message.find('|');  // Find first pipe for separating content and status
+//             size_t pipe_pos2 = message.find('|', pipe_pos1 + 1); 
+//             if (pipe_pos1 != std::string::npos && pipe_pos2 != std::string::npos) {
+//                 string content = message.substr(0, pipe_pos1);
+//                 string status = message.substr(pipe_pos1 + 1, pipe_pos2 - pipe_pos1 - 1);
+//                  string timestamp = message.substr(pipe_pos2 + 1);
+                
+//                 // if (status == "unread") {
+//                     // 如果是未读消息，保存fromid和消息内容
+//                    string m=delete_space(content);
+//                     string formatted_message =  m+ "|" +timestamp;
+//                     messages.push_back(formatted_message);
+                    
+//                     // string new_message = content + "|read";
+//                     // redisCommand(c, "LSET %s %d %s", key.c_str(), j, new_message.c_str());
+//                 // }
+//             }
+//         }
+
+//         freeReplyObject(msg_reply);
+//     }
+
+//     freeReplyObject(reply);
+//     return true;
+// }
+// //找到from_id给toid的所有消息，并且改为已读
+// bool DATA::see_all_my_message(string from_id,string to_id,vector<string>& messages)
+// {
+//     redisReply* reply = (redisReply*)redisCommand(c, "KEYS messages:%s:%s",to_id.c_str(),from_id.c_str());
+   
+//     if (!reply || reply->type == REDIS_REPLY_ERROR) {
+//         freeReplyObject(reply);
+//         return false;
+//     }
+//      const int MAX_MESSAGES = 50;
+//     int remaining = MAX_MESSAGES;
+//     for (size_t i = 0; i < reply->elements&& remaining > 0; i++) {
+//         std::string key = reply->element[i]->str;
+        
+//         //  获取该键下的所有消息
+//           redisReply* msg_reply = (redisReply*)redisCommand(
+//             c, "LRANGE %s %d %d", 
+//             key.c_str(), 
+//             0, 
+//             remaining - 1  // 确保总数不超过MAX_MESSAGES
+//         );
+//         if (!msg_reply || msg_reply->type == REDIS_REPLY_ERROR) {
+//             freeReplyObject(msg_reply);
+//             continue;
+//         }
+
+//         //  检查每条消息的状态
+//         for (size_t j = 0; j < msg_reply->elements; j++) {
+//             string message = msg_reply->element[j]->str;
+//            size_t pipe_pos1 = message.find('|');  // Find first pipe for separating content and status
+//             size_t pipe_pos2 = message.find('|', pipe_pos1 + 1); 
+//             if (pipe_pos1 != std::string::npos && pipe_pos2 != std::string::npos) {
+//                 string content = message.substr(0, pipe_pos1);
+//                string status = message.substr(pipe_pos1 + 1, pipe_pos2 - pipe_pos1 - 1);
+//                  string timestamp = message.substr(pipe_pos2 + 1);
+//             if (status == "unread") {
+//              string new_message = content + "|read|"+timestamp;
+//                     redisCommand(c, "LSET %s %d %s", key.c_str(), j, new_message.c_str());
+//                 }
+//                    string m=delete_space(content);
+//                     string formatted_message =  m+ "|" +timestamp;
+//                     messages.push_back(formatted_message);
+//                     remaining--;
+//             }
+//         }
+
+//         freeReplyObject(msg_reply);
+//     }
+
+//     freeReplyObject(reply);
+//     return true;
+// }
 //获取未读的message和其fromid
 bool DATA::get_messages( const string& toid,
                         vector<string>& fromids,
@@ -1877,63 +1946,50 @@ vector<pair<string, string>> DATA::get_unnotice_messages(string user_id, string 
     return messages;
 }
 //获取所有小于最后已读时间的
-vector<tuple<string, string, string>> DATA::get_read_messages(string user_id, string group_id) {
+vector<tuple<string, string, string>> DATA::get_read_messages(
+    string user_id, 
+    string group_id, 
+    int count = 50
+) {
     // 1. 获取用户最后阅读时间
-    redisReply* reply = (redisReply*)redisCommand(
-        c,
-        "GET user:last_read:%s:%s",
-        user_id.c_str(),
-        group_id.c_str()
-    );
-
     string last_read = "0";
+    redisReply* reply = (redisReply*)redisCommand(
+        c, "GET user:last_read:%s:%s", 
+        user_id.c_str(), group_id.c_str()
+    );
     if (reply && reply->type == REDIS_REPLY_STRING) {
         last_read = reply->str;
-        if (!std::all_of(last_read.begin(), last_read.end(), ::isdigit)) {
-            cerr << "警告: 非法的最后阅读时间格式，重置为0: " << last_read << endl;
-            last_read = "0";
-        }
     }
     freeReplyObject(reply);
 
-    // 2. 获取最后阅读时间之前的50条消息（按时间正序，最旧的在前面）
+    // 2. 获取最新的50条消息（按时间倒序）
     reply = (redisReply*)redisCommand(
-        c,
-        "ZRANGEBYSCORE chat:%s 0 (%s WITHSCORES LIMIT 0 50",
-        group_id.c_str(),
-        last_read.c_str()
+        c, "ZREVRANGE chat:%s 0 %d WITHSCORES",
+        group_id.c_str(), count - 1
     );
 
-    vector<tuple<string, string, string>> messages;
+    vector<tuple<string, string, string>> messages;  // 改为三元组
     if (reply && reply->type == REDIS_REPLY_ARRAY) {
-        if (reply->elements == 0) {
-            cout << "群组 " << group_id << " 中没有更早的历史消息" << endl;
-        } else {
-            for (size_t i = 0; i < reply->elements; i += 2) {
-                if (i+1 >= reply->elements) break;
-                
-                string full_message = reply->element[i]->str;
-                string timestamp = reply->element[i+1]->str;
+        for (size_t i = 0; i < reply->elements; i += 2) {
+            if (i+1 >= reply->elements) break;
 
-                // 解析 fromid 和 message
-                size_t separator = full_message.find('|');
-                if (separator != string::npos) {
-                    string fromid = full_message.substr(0, separator);
-                    string content = full_message.substr(separator + 1);
-                    messages.emplace_back(fromid, content, timestamp);
-                } else {
-                    cerr << "警告: 消息格式错误: " << full_message << endl;
-                    messages.emplace_back("unknown", full_message, timestamp);
-                }
+            string full_message = reply->element[i]->str;
+            string timestamp = reply->element[i+1]->str;
+
+            // 解析 from_id 和 content
+            size_t sep = full_message.find('|');
+            if (sep == string::npos) {
+                cerr << "消息格式错误: " << full_message << endl;
+                continue;
             }
-            cout << "获取到 " << messages.size() << " 条历史消息" << endl;
+
+            string from_id = full_message.substr(0, sep);
+            string content = full_message.substr(sep + 1);
+            
+            messages.emplace_back(from_id, content, timestamp);  // 只保存三个字段
         }
-    } else if (!reply) {
-        cerr << "错误: Redis命令执行失败" << endl;
-    } else if (reply->type != REDIS_REPLY_ARRAY) {
-        cerr << "错误: 预期返回数组，实际得到类型: " << reply->type << endl;
     }
-    
+
     if (reply) freeReplyObject(reply);
     return messages;
 }
@@ -2603,12 +2659,46 @@ void TCP::start(DATA &redis_data) {
     //close(client_socket);
  }
 //生成随机端口
-int TCP::generate_port(){
+int TCP::generate_port() {
     random_device rd;
     mt19937 gen(rd());
     uniform_int_distribution<> distr(PASV_PORT_MIN, PASV_PORT_MAX);
-    return distr(gen);
+
+    while (true) {
+        int port = distr(gen);  // 生成随机端口
+        
+        // 检查端口是否可用
+        int sock = socket(AF_INET, SOCK_STREAM, 0);
+        if (sock < 0) {
+            cerr << "创建套接字失败: " << strerror(errno) << endl;
+            return -1;  // 返回错误
+        }
+
+        // 设置 SO_REUSEADDR 以避免 TIME_WAIT 状态的影响
+        int opt = 1;
+        setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+        // 尝试绑定端口
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = INADDR_ANY;
+        addr.sin_port = htons(port);
+
+        if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
+            // 绑定成功，端口可用
+            close(sock);
+            return port;
+        } else {
+            // 绑定失败（端口可能被占用）
+            close(sock);
+            if (errno != EADDRINUSE) {
+                cerr << "绑定端口失败: " << strerror(errno) << endl;
+                return -1;  // 非"端口占用"错误，直接返回失败
+            }
+            // 如果是 EADDRINUSE（端口被占用），继续循环生成新端口
+        }
     }
+}
 //在登陆成功后创建数据套接字来发送消息
 int TCP::new_socket(int client_socket){
     int data_socket;
@@ -3622,85 +3712,68 @@ bool FRI::delete_chat_pair(string first) {
     return false;
 }
 //打开聊天框，发送历史记录
-void FRI::open_block(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data)
-{
-     store_chat_Pair(from_id, to_id);
-    vector<string> message1;
-    vector<string> message2;
-    vector<string> messages;
-    string recover;
 
-    string username1 =redis_data.get_username_by_id(from_id);
-    string username2 =redis_data.get_username_by_id(to_id);
-   
-    string username =redis_data.get_username_by_id(to_id);
-    if(username == "")
-    {
-    //cout << user_id<<"用户不存在于数据库中" << endl;
-    string a= "用户不存在";
-    client.send_m(data_socket,"other",a);
-    return ;
-    }
-      if(!redis_data.is_friend(to_id,from_id) &&!redis_data.is_friend(from_id,to_id))
-    {
-        string a= "你与该用户还不是好友";
-       client.send_m(data_socket,"other",a);
-        cout<<a<<endl;
+void FRI::open_block(TCP &client, int data_socket, string from_id, string to_id, DATA &redis_data) {
+    store_chat_Pair(from_id, to_id);
+    vector<string> all_messages;
+    
+    string username1 = redis_data.get_username_by_id(from_id);
+    string username2 = redis_data.get_username_by_id(to_id);
+    
+    if(username2 == "") {
+        string a = "用户不存在";
+        client.send_m(data_socket, "other", a);
         return;
     }
-    redis_data.see_all_other_message(to_id, from_id, message1);
-    if(from_id != to_id)
-    {
-    redis_data.see_all_my_message(from_id, to_id, message2);
-    }
-    if(message1.size() == 0 && message2.size() == 0)
-    {
-        recover = "暂无聊天记录";
-       
-        client.send_m(data_socket,"other",recover);
+    
+    if(!redis_data.is_friend(to_id, from_id) && !redis_data.is_friend(from_id, to_id)) {
+        string a = "你与该用户还不是好友";
+        client.send_m(data_socket, "other", a);
         return;
     }
-    messages.insert(messages.end(), message1.begin(), message1.end());
-    messages.insert(messages.end(), message2.begin(), message2.end());
-
-    std::sort(messages.begin(), messages.end(), [](const std::string& a, const std::string& b) {
-        size_t pipe_pos1 = a.rfind('|'); 
-        size_t pipe_pos2 = b.rfind('|');
-        
-        std::string timestamp_a = a.substr(pipe_pos1 + 1);
-        std::string timestamp_b = b.substr(pipe_pos2 + 1);
-        
-        return std::stoll(timestamp_a) < std::stoll(timestamp_b); 
+    
+    // 获取双方的消息
+    redis_data.see_all_other_message(to_id, from_id, all_messages); // 对方发给我的
+    if(from_id != to_id) {
+        redis_data.see_all_my_message(from_id, to_id, all_messages); // 我发给对方的
+    }
+    
+    if(all_messages.empty()) {
+        string recover = "暂无聊天记录";
+        client.send_m(data_socket, "other", recover);
+        return;
+    }
+    
+    // 按时间戳排序
+    std::sort(all_messages.begin(), all_messages.end(), [](const string& a, const string& b) {
+        size_t pipe_pos_a = a.rfind('|');
+        size_t pipe_pos_b = b.rfind('|');
+        string timestamp_a = a.substr(pipe_pos_a + 1);
+        string timestamp_b = b.substr(pipe_pos_b + 1);
+        return std::stoll(timestamp_a) < std::stoll(timestamp_b);
     });
-  if(messages.size() > 50) {
-        messages.erase(messages.begin(), messages.end() - 50);
+    
+    // 只保留最新的50条
+    if(all_messages.size() > 50) {
+        all_messages.erase(all_messages.begin(), all_messages.end() - 50);
     }
-    for (auto& msg : messages) {
-        size_t pipe_pos = msg.rfind('|'); 
-        std::string timestamp = msg.substr(pipe_pos + 1); 
+    
+    // 格式化消息
+    string recover;
+    for (auto& msg : all_messages) {
+        size_t pipe_pos = msg.rfind('|');
+        string content = msg.substr(0, pipe_pos);
+        string timestamp = msg.substr(pipe_pos + 1);
         
-        if (std::find(message1.begin(), message1.end(), msg) != message1.end()) {
-            msg = "\033[0;36m["+username2 + "]:\033[0m" + msg.substr(0, pipe_pos); 
+        // 判断消息方向
+        if (msg.find("messages:" + to_id + ":" + from_id) != string::npos) {
+            recover += "\033[0;36m[" + username2 + "]:\033[0m" + content + "\n";
+        } else {
+            recover += content + ":[" + username1 + "]\n";
         }
-        else {
-            msg = msg.substr(0, pipe_pos) + ":[" + username1+"]"; 
-        }
-    }
-    for (auto& msg : messages) {
-        size_t pipe_pos = msg.rfind('|'); 
-        msg = msg.substr(0, pipe_pos); 
-    }
-
-    for (const auto& msg : messages) {
-        recover += msg + "\n";
-        //cout << ":" << msg << endl;
     }
     
-    client.send_m(data_socket,"other",recover);
-    
-    //cout<<recover<<endl;
-    //cout<<"发>送成功"<<endl;
-   
+    client.send_m(data_socket, "other", recover);
 }
 //选择添加好友操作
 void FRI::send_add_request(TCP &client,int data_socket,string to_id,string from_id,string message,DATA &redis_data){
@@ -4387,7 +4460,7 @@ void GRO::receive_group_message(TCP &client,int data_socket, string from_id, str
 void GRO::open_group_block(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data)
 {
     store_chat_Pair(from_id,to_id);
-    vector<tuple<string, string, string>> messages = redis_data.get_read_messages(from_id, to_id);
+    vector<tuple<string, string, string>> messages = redis_data.get_read_messages(from_id, to_id,50);
     if(messages.size() == 0)
     {
         string result= "群聊暂无消息";
