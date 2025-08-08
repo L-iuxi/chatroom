@@ -2352,6 +2352,12 @@ bool TCP::rec_m(string &type, string &from_id, string &to_id, string &message, i
     to_id = j["to_id"].get<string>();
     cout<<"toid == "<<to_id;
     cout<<"from_id == "<<from_id;
+    cout<<"type=="<<type;
+    if(type.empty()||from_id.empty()||to_id.empty())
+    {
+        type.clear();
+        return true;
+    }
      }catch (const nlohmann::json::exception& e) {
         cerr << "JSON解析错误: " << e.what() << endl;
         cerr << "原始数据: " << json_str << endl;
@@ -2378,6 +2384,13 @@ int TCP::new_heartbeat_socket(int data_socket)
     server_addr.sin_port = htons(heartbeat_port);
     server_addr.sin_addr.s_addr = INADDR_ANY;
 
+    int reuse = 1;
+   if (setsockopt(heartbeat_socket, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) == -1) {
+    cerr << "[Heartbeat] 设置 SO_REUSEADDR 失败" << endl;
+    close(heartbeat_socket);
+    return -1;
+   }
+
     if (bind(heartbeat_socket, (sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
         cerr << "[Heartbeat] 心跳套接字绑定端口 " << heartbeat_port << " 失败" << endl;
         close(heartbeat_socket);
@@ -2403,7 +2416,7 @@ int TCP::new_heartbeat_socket(int data_socket)
         return -1;
     }
 
-    //cout << "[Heartbeat] 心跳套接字已建立，端口：" << heartbeat_port << endl;
+    cout << "[Heartbeat] 心跳套接字已建立，端口：" << heartbeat_port << endl;
     return heartbeat_conn;
 }
 //创建传输文件套接字
@@ -2463,6 +2476,12 @@ int TCP::new_notice_socket(int data_socket) {
     server_addr.sin_port = htons(notice_port);
     server_addr.sin_addr.s_addr = INADDR_ANY;
 
+    int reuse = 1;
+if (setsockopt(notice_socket, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) == -1) {
+    cerr << "[Heartbeat] 设置 SO_REUSEADDR 失败" << endl;
+    close(notice_socket);
+    return -1;
+}
     if(bind(notice_socket, (sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
         cerr << "传输套接字绑定失败" << endl;
         close(notice_socket);
@@ -2491,7 +2510,7 @@ int TCP::new_notice_socket(int data_socket) {
 int Random_id(){
     
     std::srand(static_cast<unsigned int>(std::time(0)));
-    int random_number = std::rand() % 900000 + 100000;
+    int random_number = std::rand() % 90 + 10;
 
     return random_number;
  }
@@ -2617,9 +2636,10 @@ void TCP::start(DATA &redis_data) {
             this->make_choice(data_socket,redis_data);
             
            // stopHeartbeatMonitor();
+             remove_user_socket(find_user_id(data_socket));
+            remove_user(data_socket);
              close(data_socket);//进入登陆后的选项  
              close(heart_socket);
-            remove_user(data_socket);
             }
            // close(data_socket);
         });
@@ -2888,7 +2908,7 @@ void TCP::send_notice(string from_id,string to_id,string message,DATA &redis_dat
     if(socket == -1)
     {
         redis_data.add_unread_message(to_id,message);
-        //cout<<"该用户不在线"<<endl;
+        cout<<"该用户不在线,已经存为离线消息"<<endl;
         return;
     }
     if(send(socket,message.c_str(),message.length(),0))
@@ -3013,8 +3033,8 @@ bool LOGIN ::login_user(int data_socket,DATA &redis_data){
         {
             cout<<"ok"<<endl;
      
-const char* msg = username.c_str();  // 获取C风格字符串
-send(data_socket, msg, strlen(msg), 0);  // 发送
+ const char* msg = username.c_str();  // 获取C风格字符串
+ send(data_socket, msg, strlen(msg), 0);  // 发送
         }
     }
     if (server->logged_users.find(data_socket) == server->logged_users.end()) {
@@ -3166,8 +3186,8 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
         {
             cout<<"接收到命令：退出登陆"<<endl;
            // running_ = false;
-            remove_user_socket(find_user_id(data_socket));
-            remove_user(data_socket);
+            // remove_user_socket(find_user_id(data_socket));
+            // remove_user(data_socket);
            // close(data_socket);
             break;
         }else if(type == "check_add_friends_request")
@@ -3331,6 +3351,9 @@ void TCP::make_choice(int data_socket,DATA &redis_data){
             cout<<"收到命令：退出群聊天"<<endl;
              group.quit_chat(*this,data_socket,from_id,to_id,message,redis_data);
              
+        }else if(type.empty())
+        {
+            cout<<"json解析结束后有某个消息为空"<<endl;
         }
         else{
             cout<<"接收到命令：未知命令"<<endl;
@@ -3665,8 +3688,8 @@ void FRI::shield_friend(TCP &client,int data_socket,string from_id,string to_id,
    client.send_m(data_socket,"other",recover);
 }
 void FRI::store_chat_Pair(string first, string second) {
-    std::lock_guard<std::mutex> lock(pairs_mutex);
-    group_pairs[first] = second;
+   // std::lock_guard<std::mutex> lock(pairs_mutex);
+    chat_pairs[first] = second;
     std::cout << "已存储: \"" << first << "\" -> \"" << second << "\"" << std::endl;
 }
 void FRI::printChatPairsTable() {
@@ -3681,7 +3704,7 @@ void FRI::printChatPairsTable() {
     
     // 使用set避免重复打印双向关系
     set<pair<string, string>> printed;
-    for(const auto& pair : group_pairs) {
+    for(const auto& pair : chat_pairs) {
         if(printed.find({pair.second, pair.first}) == printed.end()) {
             cout << "| " << setw(15) << left << pair.first 
                  << " | " << setw(15) << pair.second << " |" << endl;
@@ -3693,15 +3716,15 @@ void FRI::printChatPairsTable() {
 // 检查a对应的b是否也对应a
 bool FRI:: check_chat(string a,string b) {
    //  printChatPairsTable();
-    std::lock_guard<std::mutex> lock(pairs_mutex);
-    auto it_a = group_pairs.find(a);
-    if (it_a == group_pairs.end() || it_a->second != b) {
+    //std::lock_guard<std::mutex> lock(pairs_mutex);
+    auto it_a = chat_pairs.find(a);
+    if (it_a == chat_pairs.end() || it_a->second != b) {
         //cout << "键 \"" << a << "\" 不指向值 \"" << b << "\"" << std::endl;
         return false;
     }
     
-    auto it_b = group_pairs.find(b);
-    if (it_b == group_pairs.end() || it_b->second != a) {
+    auto it_b = chat_pairs.find(b);
+    if (it_b == chat_pairs.end() || it_b->second != a) {
         //cout << "键 \"" << b << "\" 不指向值 \"" << a << "\"" << std::endl;
         return false;
     }
@@ -3710,10 +3733,10 @@ bool FRI:: check_chat(string a,string b) {
     return true;
 }
 bool FRI::delete_chat_pair(string first) {
-     std::lock_guard<std::mutex> lock(pairs_mutex);
-    auto it = group_pairs.find(first);
-    if (it != group_pairs.end()) {
-        group_pairs.erase(it);
+     //std::lock_guard<std::mutex> lock(pairs_mutex);
+    auto it = chat_pairs.find(first);
+    if (it != chat_pairs.end()) {
+        chat_pairs.erase(it);
         std::cout << "已删除键为 \"" << first << "\" 的键值对" << std::endl;
         return true;
     }
@@ -3776,9 +3799,9 @@ void FRI::open_block(TCP &client, int data_socket, string from_id, string to_id,
         
         // 判断消息方向
         if (msg.find("messages:" + to_id + ":" + from_id) != string::npos) {
-            recover += "\033[0;36m[" + username1 + "]:\033[0m" + content + "\n";
+            recover += "\033[0;36m[" + username2 + "]:\033[0m" + content + "\n";
         } else {
-            recover += content + ":[" + username2 + "]\n";
+            recover += content + ":[" + username1 + "]\n";
         }
     }
     

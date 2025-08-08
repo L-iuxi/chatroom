@@ -43,7 +43,7 @@ TCP::TCP(const char* IP){
     }
 void TCP::send_m(const string& type,const string& from_sb,const string& to_sb, const string& message)
 {
-    if(message.empty()||data_socket < 0||type.empty()||from_sb.empty() || to_sb.empty())
+    if(data_socket < 0||type.empty()||from_sb.empty() || to_sb.empty())
     {
         return;
     }
@@ -481,6 +481,7 @@ void TCP::notice_receiver_thread() {
                 continue;
             }else{
                 cout<<buffer<<endl;
+                memset(buffer, 0, sizeof(buffer));  
             }
 
             // 处理接收到的通知
