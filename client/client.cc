@@ -908,17 +908,18 @@ void FRI:: shidld_friend(TCP &client,LOGIN &login)
 void FRI:: send_message_no(TCP &client,string from_id,string to_id)
 {
     //cin.ignore(numeric_limits<streamsize>::max(), '\n');
-        // 等待发送消息的信号
+     // 等待发送消息的信号
     while (chat_active.load()) {
     string message;
     string type = "send_message_no";
     if (!chat_active.load()) break;  
     
     getline(cin, message);
-    if(message.size() > 256)
-    {
-        cout<<"消息太长了！"<<endl;
-    }
+    // if(message.size() > 256)
+    // {
+    //     cout<<"消息太长了！"<<endl;
+    // }
+    if (!chat_active.load()) break; 
     if(message == "-1")
     {
     message = "quit_chat";
@@ -941,14 +942,12 @@ void FRI ::receive_log(TCP& client,string from_id,string to_id)
     
     string buffer; 
     if (!chat_active.load()) break; 
-    //char buffer[10086];
-    //recv(client.data_socket,buffer,10086,0);
     if(!client.rec_m(type,buffer))
     {
+        chat_active = false;
         break;
     }
     
-    //cout<<"111"<<endl;
     if (!chat_active.load()) break; 
    
     if(buffer == "quit")
@@ -956,43 +955,24 @@ void FRI ::receive_log(TCP& client,string from_id,string to_id)
          chat_active = false;
          clear_screen() ;
          break;
-    }
-    // else if(buffer == "你已被对方屏蔽!")
-    // {
-    //     chat_active = false;
-    //     PRINT_RED("正在退出聊天......");
-    //     break;
-    // }else if(buffer == "你已被删除！")
-    // {
-    //     chat_active = false;
-    //     PRINT_RED("正在退出聊天......");
-    //     break;
-    // }
+    } 
     cout<<endl;
-    
     cout<<"\033[1;36m["<<type<<"]\033[0m"<<buffer<<endl;
-  //  memset(buffer, 0, sizeof(buffer)); 
-       // cout<<buffer<<endl;
+  
         
  }
 //cout<<"我也结束了"<<endl;
 }
 void FRI:: open_block(TCP &client,LOGIN &login,string to_id)
 {
-    //暂停心跳监测
-    // client.pause_heartbeat();
     string from_id,type,message;
-    // cout<<"请选择好友"<<endl;
-    // cin>>to_id;
     type = "friend_open_block";
     from_id = login.getuser_id();
     message = "0";
     client.send_m(type,from_id,to_id,message);
-    //历史聊天记录
     
     string buffer; 
     client.rec_m(type,buffer);
-    // std::this_thread::sleep_for(std::chrono::seconds(15));
         if(buffer == "你与该用户还不是好友")
         {
         cout<<buffer<<endl;
@@ -1008,9 +988,7 @@ void FRI:: open_block(TCP &client,LOGIN &login,string to_id)
     thread send_thread(std::bind(&FRI::send_message_no, this, std::ref(client), from_id, to_id)); 
 
     receive_thread.join();
-    send_thread.join();
-
-    
+    send_thread.join(); 
 }
 
 //添加好友函数
@@ -1086,19 +1064,10 @@ void FRI::see_all_friends(TCP &client,string from_id){
     string message = "0";
     string type = "see_all_friends";
     client.send_m(type,from_id,to_id,message);
-    //client.send_m("nothing",from_id,to_id,message);
-    
-    //int bytes = recv(client.data_socket,buffer,BUFFER_SIZE,0);
     string recover;
     
-    client.rec_m(type,recover) ;
-    // if(bytes < 0)
-    // {
-    //      buffer[bytes] = '\0';
-    //     cout<<"从服务器获取数据失败"<<endl;
-
-    // }
-   // buffer[bytes] = '\0';
+    client.rec_m(type,recover);
+   
    cout<<recover<<endl;
 }
 //查看好友申请消息
