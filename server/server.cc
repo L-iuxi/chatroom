@@ -375,10 +375,10 @@ bool DATA::is_friend(string to_id, string from_id) {
     redisReply* reply = (redisReply*)redisCommand(c, "SISMEMBER user:%s:friends %s", to_id.c_str(), from_id.c_str());
 
     if (reply == nullptr) {
-       
+       cout<<"fromid is 111"<< from_id<<"to_id is 222"<<to_id<<endl;
         return false;
     }
-    bool isFriend = (reply->integer == 1);
+    bool isFriend = (reply->integer > 0);
     freeReplyObject(reply);
 
     return isFriend;
@@ -562,21 +562,11 @@ bool DATA::add_message_log(string from_id, string to_id, string m) {
     // 构造Redis键名
     const string list_key = "messages:" + from_id + ":" + to_id;
     
-    // 原子化操作：插入消息并修剪列表（保持最新1000条）
-    const int MAX_MESSAGES = 100; // 最大保留消息数
-    // 修改脚本添加错误处理
-string lua_script = 
-    "local rpush = redis.call('RPUSH', KEYS[1], ARGV[1])\n"
-    "local trim = redis.call('LTRIM', KEYS[1], -" + to_string(MAX_MESSAGES) + ", -1)\n"
-    "local llen = redis.call('LLEN', KEYS[1])\n"
-    "redis.log(redis.LOG_WARNING, 'DEBUG: '..KEYS[1]..' RPUSH='..rpush..' TRIM='..trim..' LLEN='..llen)\n"
-    "return llen";
-
-    redisReply* reply = (redisReply*)redisCommand(c, 
-        "EVAL %s 1 %s %s", 
-        lua_script.c_str(), 
-        list_key.c_str(), 
-        message.c_str());
+    // 直接使用RPUSH命令添加消息
+    string listCommand = "RPUSH " + list_key + " " + message;
+    cout << "执行命令: " << listCommand << endl;
+  
+    redisReply* reply = (redisReply*)redisCommand(c, listCommand.c_str());
 
     // 处理结果
     bool success = false;
