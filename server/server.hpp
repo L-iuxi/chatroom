@@ -42,6 +42,8 @@ using namespace std;
 
 using json = nlohmann::json;
 std::mutex redis_mutex;
+extern std::mutex g_chat_pairs_mutex;
+std::mutex g_chat_pairs_mutex;
 unordered_map<string,string> chat_pairs;
 unordered_map<string,string> group_pairs;
 unordered_map<string, int> notice_user;
@@ -52,17 +54,18 @@ unordered_map<string, int> notice_user;
 };
 class DATA{
     private:
-      bool checkTransactionResult(redisReply* reply);
+    bool checkTransactionResult(redisReply* reply);
+    static thread_local redisContext* c;
     public:
 
-    redisContext* c;
+    //redisContext* c;
     ~DATA() {
         if (c) {
             redisFree(c);
             c = nullptr;
         }
     }
-
+   
     redisContext* data_create();
     bool check_username_duplicate(string username);//检查用户名是否重复
     bool add_user(string user_id_str,string username,string password);//在数据库中添加用户数据
@@ -135,7 +138,16 @@ class DATA{
     string get_unred_messages(string user_id, const std::string& delimiter); 
     bool delete_notice_messages(string user_id);
     bool add_unread_message(string user_id,string message);
+    bool remove_group_application(string applicant_id,string group_id);
     //bool DATA::delete_user(user_id)
+};
+class MSG{
+
+    public:
+    bool  rec_m(string &type,string &from_id,string &to_id,string &message,int data_socket);
+    void send_m(int data_socket,string type,string message);
+    int readn(int data_socket,int size,char *buf);
+
 };
 class TCP{
     private:
@@ -155,7 +167,6 @@ class TCP{
     std::thread monitor_thread_;
     bool monitoring_ = false;
     public:
-     static constexpr size_t MAX_JSON_SIZE = (10 * 1024 * 1024);
     TCP();//创建服务器套接字
     ~TCP();
     void start(DATA &redis_data);//与客户端进行连接
@@ -168,13 +179,10 @@ class TCP{
 
     
     string find_user_id(int socket);
-    void recived_messages(DATA &redis_data,string user_id,int data_socket);
-    bool  rec_m(string &type,string &from_id,string &to_id,string &message,int data_socket);
-   void send_m(int data_socket,string type,string message);
-   int readn(int data_socket,int size,char *buf);
+    void recived_messages(DATA &redis_data,string user_id,int data_socket,MSG &msg);
     int generate_port();
     int new_socket(int client_socket);
-    void make_choice(int data_socket,DATA &redis_data);
+    void make_choice(int data_socket,MSG &msg);
     int find_socket(const std::string& user_id);
     void remove_user(int data_socket);
     int new_transfer_socket(int client_socket);
@@ -201,6 +209,7 @@ class TCP{
     int new_heartbeat_socket(int data_socket);
     void handleHeartbeat(int heart_socket, int data_socket) ;
 };
+
 class LOGIN{
    private:
     // int user_count;  
@@ -226,22 +235,22 @@ class FRI{
      std::mutex pairs_mutex;
     //添加好友
    // void FRI::send_add_resquest(int data_socket,string to_id,string from_id,string message,DATA &redis_data)
-   void send_add_request(TCP &client,int data_socket,string to_id,string from_id,string message,DATA &redis_data);
-   void check_add_friends_request(TCP &client,int data_socket,string from_id,DATA &redis_data,int &m);//查看好友申请
-   void add_friend(TCP &client,int data_socket,string to_id,string from_id,DATA &redis_data);//添加好友
-   void delete_friend(TCP &client,int data_socket,string to_id,string from_id,DATA& redis_data);//删除好友
-   void see_all_friends(TCP &client,int data_socket,string from_id,DATA &redis_data);//查询所有好友
-   void refuse_friend_request(TCP &client,int data_socket,string to_id,string from_id,DATA &redis_data);//拒绝好友申请
-   void send_message(TCP &client,int data_socket,string from_id,string to_id,string message,DATA &redis_data);//给好友发送消息
-   void open_block(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data);
-    void quit_chat(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data);
-    void shield_friend(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data);//屏蔽好友
-     void cancel_shield_friend(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data);//取消屏蔽
-     void new_message(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data);
-     void send_file(TCP &client,int data_socket,string from_id, string to_id, string message, DATA &redis_data);
+   void send_add_request(TCP &client,int data_socket,string to_id,string from_id,string message,DATA &redis_data,MSG &msg);
+   void check_add_friends_request(TCP &client,int data_socket,string from_id,DATA &redis_data,int &m,MSG &msg);//查看好友申请
+   void add_friend(TCP &client,int data_socket,string to_id,string from_id,DATA &redis_data,MSG &msg);//添加好友
+   void delete_friend(TCP &client,int data_socket,string to_id,string from_id,DATA& redis_data,MSG &msg);//删除好友
+   void see_all_friends(TCP &client,int data_socket,string from_id,DATA &redis_data,MSG &msg);//查询所有好友
+   void refuse_friend_request(TCP &client,int data_socket,string to_id,string from_id,DATA &redis_data,MSG &msg);//拒绝好友申请
+   void send_message(TCP &client,int data_socket,string from_id,string to_id,string message,DATA &redis_data,MSG &msg);//给好友发送消息
+   void open_block(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data,MSG &msg);
+    void quit_chat(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data,MSG &msg);
+    void shield_friend(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data,MSG &msg);//屏蔽好友
+     void cancel_shield_friend(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data,MSG &msg);//取消屏蔽
+     void new_message(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data,MSG &msg);
+     void send_file(TCP &client,int data_socket,string from_id, string to_id, string message, DATA &redis_data,MSG &msg);
     
-    void accept_file(TCP &client,int data_socket,string from_id, string to_id, string message, DATA &redis_data);
-    void is_friends(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
+    void accept_file(TCP &client,int data_socket,string from_id, string to_id, string message, DATA &redis_data,MSG &msg);
+    void is_friends(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
     void store_chat_Pair(string first, string second) ;
     bool check_chat(string a,string b);
     void printChatPairsTable();
@@ -260,36 +269,37 @@ class GRO{
     //生成随机群号
     int generateNumber();
     //创建群
-    void generate_group(TCP &client,int data_socket,string from_id,string to_id,string message,DATA &redis_data);
+    void generate_group(TCP &client,int data_socket,string from_id,string to_id,string message,DATA &redis_data,MSG &msg);
     //解散群
-    void delete_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
+    void delete_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
     //查看该用户加入的所有群聊
-    void see_all_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
+    void see_all_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
     //查看某群聊的全部成员
-    void see_all_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
+    void see_all_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
     //添加为管理
-    void add_admin(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
-    void open_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
+    void add_admin(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
+    void open_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
     //退出群聊
-    void quit_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
-    void delete_admin(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
-    void add_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
-    void send_add_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
-    void see_add_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
-    void add_group_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
-    void refuse_group_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
-    void receive_group_message(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
-    void add_group_message(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
-    void open_group_block(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
-    void send_file_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
-    void accept_file_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
-    void delete_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
+    void quit_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
+    void delete_admin(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
+    void add_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
+    void send_add_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
+    void see_add_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
+    void add_group_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
+    void refuse_group_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
+    void receive_group_message(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
+    void add_group_message(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
+    void open_group_block(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
+    void send_file_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
+    void accept_file_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
+    void delete_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
     bool check_chat(string a,string b); 
     bool delete_chat_pair(string first); 
     void printChatPairsTable();
     void store_chat_Pair(string first, string second);
-   void quit_chat(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data);
+   void quit_chat(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
 };
+
 string delete_line(const std::string& message);
 string delete_space(const std::string& message);
 string getCurrentTimestamp();
