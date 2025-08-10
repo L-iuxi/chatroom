@@ -606,7 +606,7 @@ void FRI:: choose_command(TCP &client, LOGIN &login)
             cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
              print_block();
         }
-        
+           cin.ignore(numeric_limits<streamsize>::max(), '\n'); 
     switch(a)
     {
         case 1:
@@ -741,7 +741,11 @@ void FRI::send_file_to_friends(TCP &client, LOGIN &login, string to_id) {
         cerr << "\033[31m文件 " << filepath << " 不存在\033[0m" << endl;
         return;
     }
-    
+    // 检查是否是目录
+    if (std::filesystem::is_directory(filepath)) {
+        cerr << "\033[31m" << filepath << " 是目录而不是文件\033[0m" << endl;
+        return;
+    }
     // 获取文件总大小
     streampos file_size = test_file.tellg();
     test_file.close();
@@ -824,10 +828,15 @@ void FRI:: manage_friends(TCP &client,LOGIN &login)
     string b;
     main_page2(login.getuser_id(),login.getusername());
    
-   
-    cin>>command;
-    cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    cin.clear();
+     while (!(cin >> command)) {
+    clear_screen() ;
+            cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
+            cin.clear();
+            cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+            main_page2(login.getuser_id(),login.getusername());
+        }
+        
+   cin.ignore(numeric_limits<streamsize>::max(), '\n'); 
     string type = "";
     string to_id = "";
     string from_id = "";
@@ -841,10 +850,12 @@ void FRI:: manage_friends(TCP &client,LOGIN &login)
         break;
         case 2:
         cout<<"当前操作:删除好友"<<endl;
+        see_all_friends(client,login.getuser_id());
         delete_friend(client,login.getuser_id());
         break;
         case 3:
         cout<<"当前操作：屏蔽好友"<<endl;
+        see_all_friends(client,login.getuser_id());
         shidld_friend(client,login);
         break;
         case 4:
@@ -1036,7 +1047,10 @@ void FRI:: delete_friend(TCP& client,string from_id){
     cout<<"请输入要删除的好友id TAT"<<endl;
     cin>>to_id;
     cout<<"确定要删除该好友吗TAT"<<endl;
-    cout<<"1.确定"<<endl<<"2.点错了> <"<<endl;
+    PRINT_GREEN("【1】确定");
+    PRINT_RED("【2】点错了");
+
+    //cout<<"【1】.确定"<<endl<<"2.点错了> <"<<endl;
     cin>>sure;
     if(sure == 1)
     {
@@ -1044,15 +1058,11 @@ void FRI:: delete_friend(TCP& client,string from_id){
     message = "0";
     client.send_m(type,from_id,to_id,message);
     client.rec_m(type,buffer);
-    // bytes = recv(client.data_socket,buffer,BUFFER_SIZE,0);
-    // if(bytes < 0)
-    // {
-    //     cout<<"发送好友申请后服务器无数据返回"<<endl;
-    // }else{
-    //     buffer[bytes] = '\0';
-    //     string data = string(buffer);
-        cout<<buffer<<endl;
-    // }
+  
+    cout<<buffer<<endl;
+  
+    }else{
+        cout<<"请输入1或者2"<<endl;
     }
     return;
    
@@ -1112,7 +1122,10 @@ void FRI:: check_add_friends_request(TCP &client,LOGIN &login){
     }
     cout<<"**********************************************"<<endl;
         int command = -1;
-        cout<<"1].同意某好友申请"<<endl<<"2].拒绝某好友申请"<<endl<<"-1].退出"<<endl;
+        
+    PRINT_GREEN("【1】同意某好友申请");
+    PRINT_RED("【2】拒绝某好友申请");
+        cout<<"【-1】.退出"<<endl;
          while(1)
         {
             cin>>command;
@@ -1204,11 +1217,20 @@ void FRI::manage_group(GRO &group,TCP &client,LOGIN &login)
     int command = 0; 
     string b;
     main_page3(login.getuser_id(),login.getusername());
-   
-   
-    cin>>command;
-    cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    cin.clear();
+    while (!(cin >> command)) {
+    clear_screen() ;
+            cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
+           
+             cin.clear();
+              cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+          main_page3(login.getuser_id(),login.getusername());
+        }
+        
+   cin.ignore(numeric_limits<streamsize>::max(), '\n'); 
+//  / / /
+//     cin>>command;
+//     cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+//     cin.clear();
     string type = "";
     string to_id = "";
     string from_id = "";
@@ -1220,6 +1242,7 @@ void FRI::manage_group(GRO &group,TCP &client,LOGIN &login)
         break;
         case 2:
         cout<<"当前操作：删除群聊"<<endl;
+        group.see_all_group(client,login);
         group.delete_group(client,login); 
         break;
         case 3:
@@ -1229,13 +1252,12 @@ void FRI::manage_group(GRO &group,TCP &client,LOGIN &login)
         
         case -1:
         cout<<"当前操作：退出"<<endl;
-        string from_id = login.getuser_id();
-       string type = "nothing";
-        string to_id = "0";
-        string message = "0"; 
-        client.send_m(type,from_id,to_id,message);
         return;
-    
+        break;
+        default:  
+        clear_screen() ;
+      cout << "\033[31m错误：无效选项，请重新输入！\033[0m" << endl;
+            
         break;
     }   
     if(command == -1)
@@ -1331,8 +1353,11 @@ void GRO::delete_group(TCP &client, LOGIN &login)
     string to_id = "0";
     cout<<"输入要删除的群号"<<endl;
     cin>>message;
-   cout<<"确定要删除该群聊吗"<<endl;
-   cout<<"1.确定"<<endl<<"2.点错了"<<endl;
+  // cout<<"确定要删除该群聊吗"<<endl;
+     cout<<"确定要删除该群聊吗"<<endl;
+    PRINT_GREEN("【1】确定");
+    PRINT_RED("【2】点错了");
+   //cout<<"1.确定"<<endl<<"2.点错了"<<endl;
    int command;
    cin>>command;
     while(1)
