@@ -24,6 +24,7 @@
 #include <tuple>
 #include <algorithm>
 #include <shared_mutex>
+#include <signal.h>
 //#include"friend.hpp"
 #include <../other/threadpool.hpp>
 //#include "friend.hpp"
@@ -82,7 +83,7 @@ class DATA{
     bool check_dealed_request(string from_id,string to_id,string type);//检查好友申请是否已经被处理过
     bool check_add_friend_request_duplicata(string to_id,string from_id);//检查to_id是否已经向from_id发送过申请
     string check_add_request_and_revise(string to_id);
-   bool remove_friends_request(string from_id, string to_id,string message,string status);
+   bool remove_friends_request(string from_id, string to_id);
     //bool check_recived_recover(string from_id, string type);
     bool check_recived_recover(string from_id, string type, string& data);
     //把发送的消息存储到消息表中
