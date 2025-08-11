@@ -140,6 +140,7 @@ class DATA{
     bool delete_notice_messages(string user_id);
     bool add_unread_message(string user_id,string message);
     bool remove_group_application(string applicant_id,string group_id);
+    bool check_group_apply(string group_id, string to_id);
     //bool DATA::delete_user(user_id)
 };
 class MSG{

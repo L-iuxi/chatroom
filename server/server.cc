@@ -1641,6 +1641,40 @@ bool DATA::apply_to_group(string applicant_id, string group_id,string message) {
     freeReplyObject(reply);
     return true;
 }
+bool DATA::check_group_apply(string group_id, string to_id) {
+    // 获取加群申请列表
+    redisReply* reply = (redisReply*)redisCommand(
+        c,
+        "LRANGE group:apply:%s 0 -1", 
+        group_id.c_str()
+    );
+
+    if (!reply || reply->type == REDIS_REPLY_ERROR) {
+        cerr << "获取加群申请失败: " << (reply ? reply->str : "无响应") << endl;
+        if (reply) freeReplyObject(reply);
+        return false;
+    }
+
+    // 遍历每一条申请记录
+    bool found = false;
+    for (int i = 0; i < reply->elements; ++i) {
+        string apply_value = reply->element[i]->str;
+        
+        // 判断申请记录是否包含 `to_id`
+        size_t pos = apply_value.find(":");
+        if (pos != string::npos) {
+            string applicant_id = apply_value.substr(0, pos);
+            if (applicant_id == to_id) {
+                found = true;
+                break;
+            }
+        }
+    }
+
+    freeReplyObject(reply);
+    return found;
+}
+
 bool DATA::remove_group_application(string applicant_id,string group_id) {
     redisContext* c = data_create();
     if (!c) return false;
@@ -3504,7 +3538,8 @@ void FRI::accept_file(TCP &client,int data_socket, string from_id, string to_id,
 
     thread([&client,transfer_socket,to_id,from_id,result,choice,&redis_data]()
     {
-    string filename = to_id + ":" + from_id + ":" + result[choice];
+    string filename = result[choice];
+    cout<<result[choice]<<endl;
     ifstream file(filename, ios::binary);
     if(!file) {
         send(transfer_socket, "FILE_NOT_FOUND", 14, 0);
@@ -3591,6 +3626,20 @@ void TCP::recived_messages(DATA &redis_data, string user_id, int data_socket,MSG
         redis_data.delete_notice_messages(user_id);
 }
 void FRI::send_file(TCP &client, int data_socket, string from_id, string to_id, string message, DATA &redis_data,MSG &msg) {
+    if(!redis_data.is_friend(from_id,to_id) &&!redis_data.is_friend(to_id,from_id))
+    {
+        string notice = RED_TEXT("你已被删除！");
+    msg.send_m(data_socket,"other", notice);
+    return;
+    }
+    if(redis_data.is_friend(from_id,to_id) &&!redis_data.is_friend(to_id,from_id))
+   {
+    string notice = RED_TEXT("你已被对方屏蔽!");
+    msg.send_m(data_socket,"other", notice);
+    return;
+   }
+    string notice = "friend";
+    msg.send_m(data_socket,"other", notice);
     int transfer_socket = client.new_transfer_socket(data_socket);
     if (transfer_socket == -1) {
         cerr << "无法创建传输套接字" << endl;
@@ -3609,8 +3658,12 @@ void FRI::send_file(TCP &client, int data_socket, string from_id, string to_id, 
         } else {
             filename = full_path;
         }
+          time_t now = time(nullptr);
+        tm* local_time = localtime(&now);
+        char timebuf[32];
+        strftime(timebuf, sizeof(timebuf), "_%Y%m%d_%H%M%S", local_time);
         string the_file = filename;
-        filename = from_id + ":" + to_id + ":" + filename;
+        filename = from_id + ":" + to_id + ":" + filename+timebuf;
         cout<<"filename is"<<filename<<endl;
 
         // 打开文件
@@ -3647,7 +3700,7 @@ void FRI::send_file(TCP &client, int data_socket, string from_id, string to_id, 
             
             bool redis_ok = false;
             {
-                redis_ok = redis_data.add_file(from_id, to_id, the_file);
+                redis_ok = redis_data.add_file(from_id, to_id, filename);
             }
 
             if (redis_ok) {
@@ -3955,6 +4008,14 @@ void FRI::send_add_request(TCP &client,int data_socket,string to_id,string from_
     }
 void FRI:: delete_friend(TCP &client,int data_socket,string to_id,string from_id,DATA &redis_data,MSG &msg){
 
+    if(from_id == to_id)
+    {
+        {
+        string a= RED_TEXT("不能删除自己！");
+        msg.send_m(data_socket,"other",a);
+        return;
+    }
+    }
     if(!redis_data.is_friend(to_id,from_id) ||!redis_data.is_friend(from_id,to_id))
     {
         string a= RED_TEXT("你与该用户还不是好友");
@@ -3974,8 +4035,8 @@ void FRI:: check_add_friends_request(TCP &client,int data_socket,string from_id,
     if(serialized_data.empty() || serialized_data == "[]" || serialized_data == "null")
     {
         cout<<"该用户无好友申请"<<endl;
-        serialized_data = RED_TEXT("无好友申请");
-         msg.send_m(data_socket,"other",serialized_data);
+        serialized_data = "无好友申请";
+        msg.send_m(data_socket,"other",serialized_data);
         m = 1;
         return;
     }
@@ -4345,6 +4406,7 @@ void GRO::quit_group(TCP &client,int data_socket, string from_id, string to_id, 
     if(redis_data.remove_group_member(message,from_id))
     {
         string response = RED_TEXT( "已成功退出");
+        cout<<"已发送"<<endl;
         msg.send_m(data_socket,"other", response);
         return;
     }
@@ -4465,6 +4527,12 @@ void GRO::add_group_member(TCP &client,int data_socket, string from_id, string t
 {
     string status = "accept";
     string other_status = "refuse"; 
+    if(!redis_data.check_group_apply(message,to_id))
+    {
+        string response = RED_TEXT("没有该条申请");
+       msg.send_m(data_socket,"other", response);
+        return;
+    }
     if(redis_data.is_in_group(message,to_id))
     {
          string response =RED_TEXT("用户已在该群聊内");
@@ -4545,21 +4613,27 @@ void GRO::refuse_group_member(TCP &client,int data_socket, string from_id, strin
 {
     string status = "accept";
     string other_status = "refuse"; 
+    if(!redis_data.check_group_apply(message,to_id))
+    {
+        string response = RED_TEXT("没有该条申请");
+       msg.send_m(data_socket,"other", response);
+        return;
+    }
     if(redis_data.is_in_group(message,to_id))
     {
-        string response = "用户已在该群聊内";
+        string response = RED_TEXT("用户已在该群聊内");
        msg.send_m(data_socket,"other", response);
         return;
     }
      if(redis_data.check_group_status(to_id, message, status))
     {
-        string response = "该申请已被同意，请勿重复处理";
+        string response = RED_TEXT("该申请已被同意，请勿重复处理");
         msg.send_m(data_socket,"other", response);
         return;
     }
     if(redis_data.check_group_status(to_id, message, other_status))
     {
-        string response = "该申请已被拒绝，请勿重复处理";
+        string response = RED_TEXT("该申请已被拒绝，请勿重复处理");
        msg.send_m(data_socket,"other", response);
         return;
     }
@@ -4593,7 +4667,7 @@ void GRO::add_group_message(TCP &client,int data_socket, string from_id, string 
         int b_socket =client.find_socket(members[i]);
         string notice = "对方正在聊天框内和你聊天";
        // cout<<notice<<endl;
-        string type = redis_data.get_username_by_id(members[i]);
+        string type = redis_data.get_username_by_id(from_id);
         //msg.send_m(a_socket,"other", notice);
         msg.send_m(b_socket,type, message);
             //此时用户点开了群聊界面,直接给他发过去
@@ -4654,6 +4728,15 @@ void GRO::quit_chat(TCP &client,int data_socket, string from_id, string to_id, s
 } 
 void GRO::send_file_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg)
 {
+  if(!redis_data.is_in_group(to_id,from_id))
+    {
+        string message =RED_TEXT("你不在群聊内") ;
+        msg.send_m(data_socket,"other", message);
+        return;
+    }else{
+        string message = "group" ;
+        msg.send_m(data_socket,"other", message);
+    }
      int transfer_socket = client.new_transfer_socket(data_socket);
     if(transfer_socket == -1)
     {
@@ -4674,8 +4757,12 @@ void GRO::send_file_group(TCP &client,int data_socket, string from_id, string to
         } else {
             filename = full_path;
         }
+        time_t now = time(nullptr);
+        tm* local_time = localtime(&now);
+        char timebuf[32];
+        strftime(timebuf, sizeof(timebuf), "_%Y%m%d_%H%M%S", local_time);
         string the_file = filename;
-        filename = from_id + ":" + to_id + ":" + filename;
+        filename = from_id + ":" + to_id + ":" + filename + timebuf;
         cout<<"filename is"<<filename<<endl;
 
         // 打开文件
@@ -4711,7 +4798,7 @@ void GRO::send_file_group(TCP &client,int data_socket, string from_id, string to
         // 处理传输结果
         if (transfer_complete) {
            
-        if(redis_data.add_file_group(to_id,from_id,the_file)&&redis_data.add_file_to_unread_list(to_id,from_id,the_file))
+        if(redis_data.add_file_group(to_id,from_id,filename)&&redis_data.add_file_to_unread_list(to_id,from_id,filename))
        {
         cout << "文件接收成功: " << filename << endl;
        }
@@ -4752,13 +4839,15 @@ void GRO::accept_file_group(TCP &client,int data_socket, string from_id, string 
         return;
     }
     response += "有"+to_string(result.size())+"个文件\n";
-    for(int i = 0;i < result.size();i++)
-    {
+      for (int i = 0; i < result.size(); i++) {
         size_t split_pos = result[i].find('|');
         string send_fileid = result[i].substr(0, split_pos);      
         string filename = result[i].substr(split_pos + 1);   
-        response +=to_string(i+1)+"."+ result[i] + "\n";
+
+        // 发送包含时间戳的文件名
+        response += to_string(i + 1) + ". " + result[i] + "\n";
     }
+
     
     send(data_socket, response.c_str(), response.size(), 0);
     
@@ -4794,7 +4883,7 @@ void GRO::accept_file_group(TCP &client,int data_socket, string from_id, string 
 
     string local_filename = send_fileid + ":" + to_id + ":" + filename;
     
-    ifstream file(local_filename, ios::binary);
+    ifstream file(filename, ios::binary);
     if(!file) {
         send(transfer_socket, "FILE_NOT_FOUND", 14, 0);
         cout<<"meizhaodao"<<endl;
