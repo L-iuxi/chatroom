@@ -752,6 +752,15 @@ void FRI::send_file_to_friends(TCP &client, LOGIN &login, string to_id) {
 
     this->is_transfer = true;
     client.send_m("send_file", from_id, to_id, filepath);
+    string type;
+    string buffer;
+   client.rec_m(type,buffer);
+   if(buffer != "friend")
+   {
+    this->is_transfer = false;
+    cout<<buffer<<endl;
+    return;
+   }
     client.connect_transfer_socket();
 
     std::thread([this, &client, from_id, to_id, filepath, file_size]() {
@@ -1036,37 +1045,54 @@ void FRI:: add_friend(TCP& client,string from_user_id){
     
 
 }
-void FRI:: delete_friend(TCP& client,string from_id){
+void FRI::delete_friend(TCP& client, string from_id) {
     string to_id;
     string message;
     string type;
     int bytes;
     int sure;
-    //char buffer[BUFFER_SIZE];
     string buffer;
-    cout<<"请输入要删除的好友id TAT"<<endl;
-    cin>>to_id;
-    cout<<"确定要删除该好友吗TAT"<<endl;
-    PRINT_GREEN("【1】确定");
-    PRINT_RED("【2】点错了");
 
-    //cout<<"【1】.确定"<<endl<<"2.点错了> <"<<endl;
-    cin>>sure;
-    if(sure == 1)
-    {
-    type = "delete_friend";
-    message = "0";
-    client.send_m(type,from_id,to_id,message);
-    client.rec_m(type,buffer);
-  
-    cout<<buffer<<endl;
-  
-    }else{
-        cout<<"请输入1或者2"<<endl;
+    cout << "请输入要删除的好友id TAT" << endl;
+    cin >> to_id;
+    
+    // Clear any error flags and ignore remaining input in case of previous errors
+    cin.clear();
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+
+    while (true) {
+        cout << "确定要删除该好友吗TAT" << endl;
+        PRINT_GREEN("【1】确定");
+        PRINT_RED("【2】点错了");
+        
+        cin >> sure;
+        
+        if (cin.fail()) {
+            // Input was not an integer
+            cin.clear(); // Clear error flags
+            cin.ignore(numeric_limits<streamsize>::max(), '\n'); // Discard bad input
+            cout << "请输入数字1或者2" << endl;
+            continue;
+        }
+        
+        if (sure == 1) {
+            type = "delete_friend";
+            message = "0";
+            client.send_m(type, from_id, to_id, message);
+            client.rec_m(type, buffer);
+            cout << buffer << endl;
+            break;
+        } else if (sure == 2) {
+            // User chose to cancel
+            break;
+        } else {
+            cout << "请输入1或者2" << endl;
+            // Clear any remaining input
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        }
     }
+    
     return;
-   
-  
 }
 void FRI::see_all_friends(TCP &client,string from_id){
     char buffer[BUFFER_SIZE];
@@ -1098,7 +1124,7 @@ void FRI:: check_add_friends_request(TCP &client,LOGIN &login){
     
     if(buffer == "无好友申请")
     {
-        cout<<"还没有好友申请哦"<<endl;
+        PRINT_RED("还没有好友申请哦\n");
         return;
     }
   
@@ -1855,34 +1881,39 @@ void GRO::quit_group(TCP &client,LOGIN &login,string group_id,int &m)
     string type = "quit_group";
     string message = group_id;
     string from_id =  login.getuser_id();
-    string to_id;
+    string to_id = "0";
     //char buffer[BUFFER_SIZE];
     cout<<"确定要退出群聊吗TAT"<<endl;
     cout<<"1.确定"<<"2.点错啦> <"<<endl;
-    int command;
-    while(1)
+  int command;
+    while (1)
     {
-        cin>>command;
-        if(command == 1)
+        // Check if input is valid integer
+        while (!(cin >> command))
+        {
+            cin.clear(); // Clear error flags
+            cin.ignore(numeric_limits<streamsize>::max(), '\n'); // Discard bad input
+            cout << "输入无效，请输入1或者2" << endl;
+            cout << "1.确定" << "2.点错啦> <" << endl;
+        }
+        
+        if (command == 1)
         {
             break;
-        }else if(command == 2)
+        }
+        else if (command == 2)
         {
             return;
         }
-        cout<<"请输入1或者2"<<endl;
+        cout << "请输入1或者2" << endl;
     }
     client.send_m(type,from_id,to_id,message);
     string buffer;
     client.rec_m(type,buffer);
-    // int bytes = recv(client.data_socket, buffer, BUFFER_SIZE, 0);
-    // if(bytes < 0) {
-    //     cout << "服务器无数据返回" << endl;
-    // } else {
-    //     buffer[bytes] = '\0';
-        cout  << buffer << endl;
-        m =1 ;
-    // }
+   
+    cout  << buffer << endl;
+     m =1 ;
+    
 }
 void GRO::delete_admin(TCP &client,LOGIN &login,string group_id)
 {
@@ -1966,19 +1997,18 @@ void GRO::see_add_group(TCP &client,LOGIN &login,string group_id)
     client.send_m(type,from_id,to_id,message);
     string buffer;
     client.rec_m(type,buffer);
-    //int bytes = recv(client.data_socket, buffer, BUFFER_SIZE, 0);
-    // if(bytes < 0) {
-    //     cout << "服务器无数据返回" << endl;
-    // } else {
-    //     buffer[bytes] = '\0';
-        cout  << buffer << endl;
-    // }
+  
+    cout  << buffer << endl;
+    if(buffer == "无申请消息")
+    {
+        return;
+    }
 
     int command = -1;
     cout<<"请选择操作"<<endl<<"1.同意某申请"<<endl<<"2.拒绝某申请"<<endl<<"-1.退出"<<endl;
     cin>>command;
-    cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    cin.clear();
+    // cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    // cin.clear();
      while(1)
     {
         if(command != 1 &&command != 2 &&command != -1)
@@ -2001,16 +2031,9 @@ void GRO::see_add_group(TCP &client,LOGIN &login,string group_id)
             client.send_m(type,from_id,to_id,message);
             string buffer2;
             client.rec_m(type,buffer2);
-            // int byte = recv(client.data_socket,buffer2,BUFFER_SIZE,0);
-            // if(byte < 0)
-            // {
-            //         cout<<"从服务器接收数据失败"<<endl;
-            //         return;
-            // }
-            // buffer2[byte] = '\0';
-
+    
             cout<<buffer2<<endl;
-            //memset(buffer2, 0, sizeof(buffer2));
+           
 
         }else if(command == 2){
             //char buffer2[BUFFER_SIZE];
@@ -2021,23 +2044,12 @@ void GRO::see_add_group(TCP &client,LOGIN &login,string group_id)
             type = "refuse_group_requests";
             client.send_m(type,from_id,to_id,message);
             string buffer2;
-         client.rec_m(type,buffer2);
-            // int byte = recv(client.data_socket,buffer2,BUFFER_SIZE,0);
-            // if(byte < 0)
-            // {
-            //         cout<<"从服务器接收数据失败"<<endl;
-            // }
-            // buffer2[byte] = '\0';
-
+            client.rec_m(type,buffer2);
+           
             cout<<buffer2<<endl;
-            // memset(buffer2, 0, sizeof(buffer2));
+          
         }else if(command == -1)
         {
-        string from_id = login.getuser_id();
-        string type = "nothing";
-        string to_id = "0";
-        string message = "0"; 
-        client.send_m(type,from_id,to_id,message);
         return;
         }
 }
@@ -2057,7 +2069,14 @@ void GRO::send_file_group(TCP &client,LOGIN &login,string group_id)
     }
     test_file.close();
   string to_id = group_id;
+  string buffer,type;
   client.send_m("send_file_group", from_id, to_id, filepath);
+  client.rec_m(type,buffer);
+  if(buffer!= "group")
+  {
+    cout<<buffer<<endl;
+    return;
+  }
  client.connect_transfer_socket();
 
     this->is_transfer = true;
