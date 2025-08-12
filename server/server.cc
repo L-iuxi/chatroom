@@ -731,14 +731,12 @@ bool DATA::delete_message_logs(string user_id) {
     return success;
 }
 bool DATA::see_all_other_message(string from_id, string to_id, vector<string>& messages) {
-     redisContext* c = data_create();  // 自动获取线程专用连接
+    redisContext* c = data_create();
     if (!c) return false;
     string list_key = "messages:" + from_id + ":" + to_id;
     
-    // 获取最新的100条消息
     redisReply* reply = (redisReply*)redisCommand(c, "LRANGE %s %d %d", 
-        list_key.c_str(), 
-        -100, -1);
+        list_key.c_str(), -100, -1);
     
     if (!reply || reply->type == REDIS_REPLY_ERROR) {
         if (reply) freeReplyObject(reply);
@@ -755,7 +753,8 @@ bool DATA::see_all_other_message(string from_id, string to_id, vector<string>& m
             string status = message.substr(pipe_pos1 + 1, pipe_pos2 - pipe_pos1 - 1);
             string timestamp = message.substr(pipe_pos2 + 1);
             
-            string formatted_message = delete_space(content) + "|" + timestamp;
+            // 格式化为 from_id:to_id:content|timestamp
+            string formatted_message = from_id + ":" + to_id + ":" + delete_space(content) + "|" + timestamp;
             messages.push_back(formatted_message);
         }
     }
@@ -765,14 +764,12 @@ bool DATA::see_all_other_message(string from_id, string to_id, vector<string>& m
 }
 
 bool DATA::see_all_my_message(string from_id, string to_id, vector<string>& messages) {
-    redisContext* c = data_create();  // 自动获取线程专用连接
+    redisContext* c = data_create();
     if (!c) return false;
     string list_key = "messages:" + from_id + ":" + to_id;
     
-    // 获取最新的100条消息
     redisReply* reply = (redisReply*)redisCommand(c, "LRANGE %s %d %d", 
-        list_key.c_str(), 
-        -100, -1);
+        list_key.c_str(), -100, -1);
     
     if (!reply || reply->type == REDIS_REPLY_ERROR) {
         if (reply) freeReplyObject(reply);
@@ -789,13 +786,13 @@ bool DATA::see_all_my_message(string from_id, string to_id, vector<string>& mess
             string status = message.substr(pipe_pos1 + 1, pipe_pos2 - pipe_pos1 - 1);
             string timestamp = message.substr(pipe_pos2 + 1);
             
-            // 如果是未读消息，标记为已读
             if (status == "unread") {
                 string new_message = content + "|read|" + timestamp;
                 redisCommand(c, "LSET %s %d %s", list_key.c_str(), i, new_message.c_str());
             }
             
-            string formatted_message = delete_space(content) + "|" + timestamp;
+            // 格式化为 from_id:to_id:content|timestamp
+            string formatted_message = from_id + ":" + to_id + ":" + delete_space(content) + "|" + timestamp;
             messages.push_back(formatted_message);
         }
     }
@@ -803,7 +800,6 @@ bool DATA::see_all_my_message(string from_id, string to_id, vector<string>& mess
     freeReplyObject(reply);
     return true;
 }
-
 //获取未读的message和其fromid
 bool DATA::get_messages( const string& toid,
                         vector<string>& fromids,
@@ -3950,21 +3946,30 @@ void FRI::open_block(TCP &client, int data_socket, string from_id, string to_id,
     }
     
     // 格式化消息
-    string recover;
-    for (auto& msg : all_messages) {
-        size_t pipe_pos = msg.rfind('|');
-        string content = msg.substr(0, pipe_pos);
-        string timestamp = msg.substr(pipe_pos + 1);
+     string recover;
+    for (auto& msg_str : all_messages) {
+        // 解析 from_id:to_id:content|timestamp
+        size_t first_colon = msg_str.find(':');
+        size_t second_colon = msg_str.find(':', first_colon + 1);
+        size_t pipe_pos = msg_str.find('|', second_colon + 1);
         
-        // 判断消息方向
-        if (msg.find("messages:" + to_id + ":" + from_id) != string::npos) {
-            recover += "\033[0;36m[" + username2 + "]:\033[0m" + content + "\n";
+        string sender_id = msg_str.substr(0, first_colon);
+        string receiver_id = msg_str.substr(first_colon + 1, second_colon - first_colon - 1);
+        string content = msg_str.substr(second_colon + 1, pipe_pos - second_colon - 1);
+        string timestamp = msg_str.substr(pipe_pos + 1);
+        
+        string sender_name = (sender_id == from_id) ? username1 : username2;
+        
+        // 根据发送者决定显示格式
+        if (sender_id == from_id) {
+            recover +=  content + "[" + sender_name + "]\n";
         } else {
-            recover += content + ":[" + username1 + "]\n";
+            recover += "\033[0;36m[" + sender_name + "]:\033[0m" + content + "\n";
         }
     }
     
     msg.send_m(data_socket, "other", recover);
+   
 }
 //选择添加好友操作
 void FRI::send_add_request(TCP &client,int data_socket,string to_id,string from_id,string message,DATA &redis_data,MSG &msg){
