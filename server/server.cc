@@ -2723,7 +2723,7 @@ void TCP::start(DATA &redis_data) {
         }
         else if (bytes == 0) {
                     // 客户端断开连接
-                    std::cout << "客户端已断开连接\n";
+                    cout << "客户端已断开连接\n";
                     close(client_socket);  
         } else {
               
@@ -3288,13 +3288,13 @@ void TCP::make_choice(int data_socket,MSG &msg){
     string type,to_id,from_id,message;
     recived_messages(redis_data,find_user_id(data_socket),data_socket,msg);
     cout<<"已发送离线消息"<<endl;
-    while(1)
-    {
-        if(!msg.rec_m(type,from_id,to_id,message,data_socket))
-        {
-            cout<<"客户端已断开"<<endl;
-            break;
-        }
+    // while(1)
+    // {
+    //     if(!msg.rec_m(type,from_id,to_id,message,data_socket))
+    //     {
+    //         cout<<"客户端已断开"<<endl;
+    //         break;
+    //     }
         if(type == "send_add_friends_request")
         {
             cout<<"接收到命令：添加好友"<<endl;
@@ -3310,7 +3310,7 @@ void TCP::make_choice(int data_socket,MSG &msg){
             // remove_user_socket(find_user_id(data_socket));
             // remove_user(data_socket);
            // close(data_socket);
-            break;
+            // break;
         }else if(type == "check_add_friends_request")
         {
             cout<<"接收到命令：查看该用户收到的好友申请"<<endl;
@@ -3479,9 +3479,9 @@ void TCP::make_choice(int data_socket,MSG &msg){
         else{
             cout<<"接收到命令：未知命令"<<endl;
             cout<<"未知命令为"<<type<<endl;
-            break;
+            // break;
         }
-     }
+    //  }
  }
 
 void FRI::accept_file(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg) {
