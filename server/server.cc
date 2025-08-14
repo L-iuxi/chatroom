@@ -3275,7 +3275,7 @@ void LOGIN::deregister_user(int data_socket,DATA &redis_data){
      close(data_socket);
  }
 
-//登陆成功之后选择后续操作
+//选择后续操作
 void TCP::make_choice(int data_socket,MSG &msg){
     DATA redis_data;
     redis_data.data_create();
