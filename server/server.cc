@@ -2740,15 +2740,15 @@ void TCP::start(DATA &redis_data) {
             
             if(data  =="login")
             {
-                int data_socket = new_socket(client_socket);
+                // int data_socket = new_socket(client_socket);
                 
-            pool.enqueue([this, data_socket,&redis_data, &login](){  
-            if (login.login_user(data_socket, redis_data)) {
+            pool.enqueue([this, client_socket,&redis_data, &login](){  
+            if (login.login_user(client_socket, redis_data)) {
             
             MSG msg;
             int heart_socket = new_heartbeat_socket(data_socket);
             addSocketPair(data_socket, heart_socket); 
-            std::thread(&TCP::handleHeartbeat, this, heart_socket, data_socket).detach();
+            thread(&TCP::handleHeartbeat, this, heart_socket, data_socket).detach();
             this->make_choice(data_socket,msg);
             
            // stopHeartbeatMonitor();
@@ -2762,18 +2762,18 @@ void TCP::start(DATA &redis_data) {
             }else if(data == "register")
             {
            
-            int data_socket = new_socket(client_socket);
-            pool.enqueue([data_socket,&redis_data,&login](){
+           // int data_socket = new_socket(client_socket);
+            pool.enqueue([client_socket,&redis_data,&login](){
             //cout << "Registering user..." << endl;
-            login.register_user(data_socket,redis_data);
+            login.register_user(client_socket,redis_data);
             });
            
             //close(data_socket);
             }else if(data  == "deregister")
             {
-                int data_socket = new_socket(client_socket);
-                pool.enqueue([data_socket ,&redis_data,&login](){
-             login.deregister_user(data_socket,redis_data);
+                //int data_socket = new_socket(client_socket);
+                pool.enqueue([client_socket ,&redis_data,&login](){
+             login.deregister_user(client_socket,redis_data);
             });
             //close(data_socket);
             }else if(data == "quit")
@@ -2789,6 +2789,7 @@ void TCP::start(DATA &redis_data) {
             }
    
     }
+}
     }
   
     close(epoll_fd); 
@@ -2801,35 +2802,33 @@ int TCP::generate_port() {
     uniform_int_distribution<> distr(PASV_PORT_MIN, PASV_PORT_MAX);
 
     while (true) {
-        int port = distr(gen);  // 生成随机端口
+        int port = distr(gen);  
         
-        // 检查端口是否可用
         int sock = socket(AF_INET, SOCK_STREAM, 0);
         if (sock < 0) {
             cerr << "创建套接字失败: " << strerror(errno) << endl;
-            return -1;  // 返回错误
+            return -1; 
         }
 
         // 设置 SO_REUSEADDR 以避免 TIME_WAIT 状态的影响
         int opt = 1;
         setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-        // 尝试绑定端口
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = INADDR_ANY;
         addr.sin_port = htons(port);
 
         if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
-            // 绑定成功，端口可用
+           
             close(sock);
             return port;
         } else {
-            // 绑定失败（端口可能被占用）
+           
             close(sock);
             if (errno != EADDRINUSE) {
                 cerr << "绑定端口失败: " << strerror(errno) << endl;
-                return -1;  // 非"端口占用"错误，直接返回失败
+                return -1;  
             }
          
         }
@@ -2932,7 +2931,7 @@ void TCP:: checkHeartbeats() {
         for (auto it = client_last_heartbeat_.begin(); it != client_last_heartbeat_.end(); ) {
             auto duration = now - it->second;
             if (duration > std::chrono::minutes(1)) {
-                std::cout << "客户端 " << it->first << " 心跳超时，关闭连接" << std::endl;
+                cout << "客户端 " << it->first << " 心跳超时，关闭连接" << endl;
                 remove_user(it->first);
                 close(it->first);
                 // 清理用户数据
@@ -2942,18 +2941,19 @@ void TCP:: checkHeartbeats() {
             }
         }
     }
+    //接收心跳
 void TCP::handleHeartbeat(int heart_socket, int data_socket) {
     char buf[8];
     while (true) {
         ssize_t bytes = recv(heart_socket, buf, sizeof(buf), 0);
         if (bytes <= 0) {
-            std::unique_lock<std::mutex> lock(heartbeat_mutex_);
-            // 心跳连接异常，直接关闭两个套接字
+            unique_lock<mutex> lock(heartbeat_mutex_);
+        
             
             socket_pairs_.erase(data_socket);
             remove_user(data_socket);
-            std::cout << "正在关闭 data_socket=" << data_socket 
-          << ", heart_socket=" << heart_socket << std::endl;
+            cout << "正在关闭 data_socket=" << data_socket 
+          << ", heart_socket=" << heart_socket << endl;
             close(data_socket);
             close(heart_socket);
             break;
@@ -2961,7 +2961,7 @@ void TCP::handleHeartbeat(int heart_socket, int data_socket) {
         
         if (strncmp(buf, "ping", 4) == 0) {
             updateHeartbeat(data_socket);
-            cout<<"收到心跳"<<endl;
+            //cout<<"收到心跳"<<endl;
             //send(heart_socket, "PONG", 4, 0);
         }
     }
@@ -3295,6 +3295,7 @@ void TCP::make_choice(int data_socket,MSG &msg){
     //         cout<<"客户端已断开"<<endl;
     //         break;
     //     }
+    msg.rec_m(type,from_id,to_id,message,data_socket);
         if(type == "send_add_friends_request")
         {
             cout<<"接收到命令：添加好友"<<endl;
