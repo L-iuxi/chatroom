@@ -2668,135 +2668,155 @@ TCP::TCP():pool(10) {
 
 //与客户端建立连接
 void TCP::start(DATA &redis_data) {
-    int client_socket,epoll_fd,nfds;
-    struct sockaddr_in address;
-    int addrlen = sizeof(address);
-    struct epoll_event ev,events[MAX_EVENTS];
-
-    epoll_fd = epoll_create1(0);
-    if(epoll_fd == -1)
-    {
+    int epoll_fd = epoll_create1(0);
+    if(epoll_fd == -1) {
         perror("epoll_create1 failed");
         exit(EXIT_FAILURE);
     }
-    fcntl(server_socket,F_SETFL,O_NONBLOCK);
 
+    fcntl(server_socket, F_SETFL, O_NONBLOCK);
+    struct epoll_event ev;
     ev.events = EPOLLIN | EPOLLET;
     ev.data.fd = server_socket;
-    if(epoll_ctl(epoll_fd,EPOLL_CTL_ADD,server_socket,&ev) == -1)
-    {
+    if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_socket, &ev) == -1) {
         perror("epoll_ctl failed");
+        close(epoll_fd);
         exit(EXIT_FAILURE);
     }
 
-    while (1) {
-       
-        nfds = epoll_wait(epoll_fd,events,MAX_EVENTS,-1);
-        if(nfds == -1)
-        {
+    struct epoll_event events[MAX_EVENTS];
+    while (true) {
+        int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
+        if(nfds == -1) {
+            if(errno == EINTR) continue;  
             perror("epoll_wait failed");
-            exit(EXIT_FAILURE);
+            break;
         }
-        
-        
-        for(int i = 0;i < nfds;i++)
-        {
-            cout<<"nfds==" <<nfds<<endl;
-            if(events[i].data.fd == server_socket)
-            {
-            client_socket = accept(server_socket, (struct sockaddr *)&address, (socklen_t *)&addrlen);
-            if(client_socket == -1)
-            {
-            perror("Accept failed");
-            continue;
-            }
-              std::cout << "有新的客户端连接\n";
-              //fcntl(client_socket,F_SETFL,NONBLOCK);
-            
-            ev.events = EPOLLIN | EPOLLET;  // 监听可读事件和边缘触发
-            ev.data.fd = client_socket;
-                if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket, &ev) == -1) {
-                    perror("epoll_ctl failed for client_socket");
-                    exit(EXIT_FAILURE);
-                }
-            }else{
-            client_socket = events[i].data.fd;
-            // string command = msg.rec_m(client_socket);
-            char buffer[1024];
-            int bytes = recv(client_socket,buffer, sizeof(buffer) - 1, 0);
-        if(bytes > 0)
-        {
-        buffer[bytes] = '\0';
-       
-        }
-        else if (bytes == 0) {
-                    // 客户端断开连接
-                    std::cout << "客户端已断开连接\n";
-                    close(client_socket);  
-                } 
-        // string recived_message = string(buffer);
-        string data(buffer,bytes);
-            redisContext* cn = redis_data.data_create();
-            //redis_data.c = cn;
-            //redisContext* c = data.data_create();
-            LOGIN login(this);
-            
-            if(data  =="login")
-            {
-                cout<<"当前操作：登陆"<<endl;
-            
-                //在这里创建数据套接字，下面都用数据套接字传送消息
-                int data_socket = new_socket(client_socket);
-                
-            pool.enqueue([this, data_socket,&redis_data, &login](){  
-            if (login.login_user(data_socket, redis_data)) {
-            cout<<"用户已成功登陆"<<endl;
-            MSG msg;
-            int heart_socket = new_heartbeat_socket(data_socket);
-            addSocketPair(data_socket, heart_socket); 
-            std::thread(&TCP::handleHeartbeat, this, heart_socket, data_socket).detach();
-            this->make_choice(data_socket,msg);
-            
-           // stopHeartbeatMonitor();
-            remove_user_socket(find_user_id(data_socket));
-            remove_user(data_socket);
-             close(data_socket);//进入登陆后的选项  
-             close(heart_socket);
-            }
-           // close(data_socket);
-        });
-            }else if(data == "register")
-            {
-            int data_socket = new_socket(client_socket);
-            pool.enqueue([data_socket,&redis_data,&login](){
-            //cout << "Registering user..." << endl;
-            login.register_user(data_socket,redis_data);
-            });
-            //close(data_socket);
-            }else if(data  == "deregister")
-            {
-                int data_socket = new_socket(client_socket);
-                pool.enqueue([data_socket ,&redis_data,&login](){
-             login.deregister_user(data_socket,redis_data);
-            });
-            //close(data_socket);
-            }else if(data == "quit")
-            {
-                close(client_socket);
-                break;
-            }else if (data == "") {
-            //std::cout << "Client disconnected\n";
-            cout << "No bytes received\n";
-            }
 
+        for(int i = 0; i < nfds; i++) {
+            int fd = events[i].data.fd;
+            
+            if(fd == server_socket) {
+                // 处理新连接
+                handleNewConnection(epoll_fd);
+            } else {
+                // 处理客户端数据
+                handleClientData(fd, redis_data);
             }
-   
+        }
     }
+    
+    close(epoll_fd);
+}
+
+void TCP::handleNewConnection(int epoll_fd) {
+    struct sockaddr_in address;
+    socklen_t addrlen = sizeof(address);
+    
+    while(true) {  // 边缘触发需要accept所有连接
+        int client_socket = accept(server_socket, (struct sockaddr*)&address, &addrlen);
+        if(client_socket == -1) {
+            if(errno == EAGAIN || errno == EWOULDBLOCK) break; 
+            perror("accept failed");
+            continue;
+        }
+
+        fcntl(client_socket, F_SETFL, O_NONBLOCK);
+        struct epoll_event ev;
+        ev.events = EPOLLIN | EPOLLET ;
+        ev.data.fd = client_socket;
+        
+        if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket, &ev) == -1) {
+            perror("epoll_ctl client failed");
+            close(client_socket);
+            continue;
+        }
+        
+        std::cout << "新客户端连接: " << client_socket << std::endl;
     }
-  
-    close(epoll_fd); 
-    //close(client_socket);
- }
+}
+
+void TCP::handleClientData(int client_socket, DATA &redis_data) {
+    std::string message;
+    
+    while(true) {
+        char buffer[1024];
+        int bytes = recv(client_socket, buffer, sizeof(buffer)-1, 0);
+        
+        if(bytes > 0) {
+            buffer[bytes] = '\0';
+            message.append(buffer, bytes);
+        } else if(bytes == 0) {
+            // 客户端断开连接
+            std::cout << "客户端断开: " << client_socket << std::endl;
+            close(client_socket);
+            return;
+        } else {
+            if(errno == EAGAIN || errno == EWOULDBLOCK) {
+                if(!message.empty()) {
+                    processClientMessage(client_socket, message, redis_data);
+                }
+                return;
+            } 
+        }
+    }
+}
+
+
+void TCP::processClientMessage(int client_socket, const std::string &message, DATA &redis_data) {
+    if(message == "login") {
+        handleLogin(client_socket, redis_data);
+    } else if(message == "register") {
+        handleRegister(client_socket, redis_data);
+    } else if(message == "deregister") {
+        handleDeregister(client_socket, redis_data);
+    } else if(message == "quit") {
+        close(client_socket);
+    }
+}
+
+void TCP::handleLogin(int client_socket, DATA &redis_data) {
+    int data_socket = new_socket(client_socket);
+    int heart_socket = new_heartbeat_socket(data_socket);
+    
+    pool.enqueue([this, data_socket, heart_socket, &redis_data]() {
+       
+            LOGIN login(this); 
+            
+            if(login.login_user(data_socket, redis_data)) {
+               
+                //std::thread(&TCP::handleHeartbeat, this, heart_socket, data_socket).detach();
+                
+                MSG msg;
+                this->make_choice(data_socket, msg);
+            }
+       
+        
+        close(data_socket);
+        close(heart_socket);
+    });
+}
+void TCP::handleRegister(int client_socket, DATA &redis_data) {
+    int data_socket = new_socket(client_socket);
+    pool.enqueue([this, data_socket, &redis_data](){
+    
+        LOGIN login(this);
+        login.register_user(data_socket, redis_data);
+        close(data_socket);
+       
+    });
+}
+
+void TCP::handleDeregister(int client_socket, DATA &redis_data) {
+    int data_socket = new_socket(client_socket);
+    pool.enqueue([this, data_socket, &redis_data](){
+      
+        LOGIN login(this);
+        login.deregister_user(data_socket, redis_data);
+        close(data_socket);
+     
+    });
+}
 //生成随机端口
 int TCP::generate_port() {
     random_device rd;
@@ -2908,7 +2928,7 @@ void TCP::remove_user(int data_socket)
         
     }
 }
-  // 启动心跳监测线程
+  // 服务器开始时启动心跳监测线程
 void TCP ::startHeartbeatMonitor() {
         monitoring_ = true;
         monitor_thread_ = std::thread([this]() {
@@ -2921,7 +2941,7 @@ void TCP ::startHeartbeatMonitor() {
         monitor_thread_.detach();
     }
 
-    // 停止心跳监测
+    // 服务器关闭时停止心跳监测
 void TCP::stopHeartbeatMonitor() {
         monitoring_ = false;
         if (monitor_thread_.joinable()) {
@@ -2945,41 +2965,14 @@ void TCP:: checkHeartbeats() {
             }
         }
     }
-void TCP::handleHeartbeat(int heart_socket, int data_socket) {
-    char buf[8];
-    while (true) {
-        ssize_t bytes = recv(heart_socket, buf, sizeof(buf), 0);
-        if (bytes <= 0) {
-            std::unique_lock<std::mutex> lock(heartbeat_mutex_);
-            // 心跳连接异常，直接关闭两个套接字
-            
-            socket_pairs_.erase(data_socket);
-            remove_user(data_socket);
-            std::cout << "正在关闭 data_socket=" << data_socket <<std::endl;
-            close(data_socket);
-            c
-            break;
-        }
-        
-        if (strncmp(buf, "ping", 4) == 0) {
-            updateHeartbeat(data_socket);
-            cout<<"收到心跳"<<endl;
-           
-        }
-    }
-}
+
 //更新在线时间
 void TCP::updateHeartbeat(int data_socket) {
-    cout<<"已更新客户端在线时间"<<endl;
     std::unique_lock<std::mutex> lock(heartbeat_mutex_);
-    if (socket_pairs_.count(data_socket)) {
-        socket_pairs_[data_socket].last_heartbeat = std::chrono::steady_clock::now();
-    }
+    client_last_heartbeat_[data_socket] = std::chrono::steady_clock::now();
+    cout << "更新客户端 " << data_socket << " 心跳时间" << endl;
 }
-void TCP::addSocketPair(int data_socket, int heart_socket) {
-    std::unique_lock<std::mutex> lock(heartbeat_mutex_);
-    socket_pairs_[data_socket] = {data_socket, heart_socket, std::chrono::steady_clock::now()};
-}
+
 //关闭所有在线的客户端数据套接字
 TCP:: ~TCP(){
      std::cerr << "TCP对象被析构，socket=" << server_socket << std::endl;
@@ -3277,7 +3270,7 @@ void LOGIN::deregister_user(int data_socket,DATA &redis_data){
      close(data_socket);
  }
 
-//登陆成功之后选择后续操作
+//操作
 void TCP::make_choice(int data_socket,MSG &msg){
     DATA redis_data;
     redis_data.data_create();
