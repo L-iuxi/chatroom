@@ -401,16 +401,17 @@ bool DATA::revise_status(string from_id, string to_id, string new_status) {
 }
 //检查两人是否为好友
 bool DATA::is_friend(string to_id, string from_id) {
-     redisContext* c = data_create();  
+     redisContext* c = data_create();  // 自动获取线程专用连接
     if (!c) return false;
-  
+    // redisReply* selectReply = (redisReply*)redisCommand(c, "SELECT 0");
+    // freeReplyObject(selectReply);
     redisReply* reply = (redisReply*)redisCommand(c, "SISMEMBER user:%s:friends %s", to_id.c_str(), from_id.c_str());
 
     if (reply == nullptr) {
-       cout<<"fromid is a"<< from_id<<"to_id is b"<<to_id<<endl;
+       cout<<"fromid is 111"<< from_id<<"to_id is 222"<<to_id<<endl;
         return false;
     }
-     if (reply->type == REDIS_REPLY_ERROR) {  
+     if (reply->type == REDIS_REPLY_ERROR) {  // 显式检查错误
         cout << "Redis error: " << reply->str << endl;
         freeReplyObject(reply);
         return false;
@@ -418,7 +419,7 @@ bool DATA::is_friend(string to_id, string from_id) {
     bool isFriend = (reply->integer > 0);
     if(!isFriend )
     {
-         cout<<"fromid is"<<from_id<<"to_id is"<<to_id<<endl;
+         cout<<"fromid is 1"<<from_id<<"to_id is 2"<<to_id<<endl;
          cout<<reply->integer<<endl;
     }
      freeReplyObject(reply);
@@ -1891,6 +1892,7 @@ bool DATA::add_group_message(string from_id, string message, string group_id, st
     // 值格式：from_id|message
     string value = from_id + "|" + message;
     
+    // 1. 开始事务
     redisReply* reply = (redisReply*)redisCommand(c, "MULTI");
     if (!reply || reply->type == REDIS_REPLY_ERROR) {
         cerr << "开启事务失败" << endl;
@@ -1899,6 +1901,7 @@ bool DATA::add_group_message(string from_id, string message, string group_id, st
     }
     freeReplyObject(reply);
 
+    // 2. 添加消息命令
     reply = (redisReply*)redisCommand(
         c,
         "ZADD chat:%s %s %s",
@@ -1909,11 +1912,12 @@ bool DATA::add_group_message(string from_id, string message, string group_id, st
     if (!reply || reply->type == REDIS_REPLY_ERROR) {
         cerr << "添加消息命令失败" << endl;
         if (reply) freeReplyObject(reply);
-        redisCommand(c, "DISCARD");
+        redisCommand(c, "DISCARD"); // 丢弃事务
         return false;
     }
     freeReplyObject(reply);
 
+    // 3. 修剪消息命令
     reply = (redisReply*)redisCommand(
         c,
         "ZREMRANGEBYRANK chat:%s 0 -101",
@@ -1922,11 +1926,12 @@ bool DATA::add_group_message(string from_id, string message, string group_id, st
     if (!reply || reply->type == REDIS_REPLY_ERROR) {
         cerr << "修剪消息命令失败" << endl;
         if (reply) freeReplyObject(reply);
-        redisCommand(c, "DISCARD"); 
+        redisCommand(c, "DISCARD"); // 丢弃事务
         return false;
     }
     freeReplyObject(reply);
 
+    // 4. 执行事务
     reply = (redisReply*)redisCommand(c, "EXEC");
     if (!reply || reply->type == REDIS_REPLY_ERROR) {
         cerr << "执行事务失败: " << (reply ? reply->str : "无响应") << endl;
@@ -1934,6 +1939,7 @@ bool DATA::add_group_message(string from_id, string message, string group_id, st
         return false;
     }
 
+    // 5. 检查执行结果
     if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 2) {
         cerr << "事务执行结果异常" << endl;
         freeReplyObject(reply);
@@ -2392,7 +2398,7 @@ void MSG::send_m(int data_socket,string type,string message)
     j["message"] = message;
 
     string msg = j.dump();
-    //cout<<"准备发送"<<msg<<endl;
+    cout<<"准备发送"<<msg<<endl;
     uint32_t msg_len = htonl(msg.size());
     string ext_len(4 + msg.size(), '\0');
     memcpy(ext_len.data(), &msg_len, 4);
@@ -2467,9 +2473,9 @@ bool MSG::rec_m(string &type, string &from_id, string &to_id, string &message, i
     message = j["message"].get<string>();
     from_id = j["from_id"].get<string>();
     to_id = j["to_id"].get<string>();
-    //cout<<"toid == "<<to_id;
-    //cout<<"from_id == "<<from_id;
-    //cout<<"type=="<<type;
+    cout<<"toid == "<<to_id;
+    cout<<"from_id == "<<from_id;
+    cout<<"type=="<<type;
     if(type.empty()||from_id.empty()||to_id.empty())
     {
         type.clear();
@@ -2657,7 +2663,7 @@ TCP::TCP():pool(10) {
         exit(EXIT_FAILURE);
     }
     Threadpool pool(4);
-    cout << "Server listening on port " << PORT << "...\n";
+    std::cout << "Server listening on port " << PORT << "...\n";
  }
 
 //与客户端建立连接
@@ -2674,6 +2680,7 @@ void TCP::start(DATA &redis_data) {
         exit(EXIT_FAILURE);
     }
     fcntl(server_socket,F_SETFL,O_NONBLOCK);
+
     ev.events = EPOLLIN | EPOLLET;
     ev.data.fd = server_socket;
     if(epoll_ctl(epoll_fd,EPOLL_CTL_ADD,server_socket,&ev) == -1)
@@ -2694,7 +2701,7 @@ void TCP::start(DATA &redis_data) {
         
         for(int i = 0;i < nfds;i++)
         {
-           // cout<<"nfds==" <<nfds<<endl;
+            cout<<"nfds==" <<nfds<<endl;
             if(events[i].data.fd == server_socket)
             {
             client_socket = accept(server_socket, (struct sockaddr *)&address, (socklen_t *)&addrlen);
@@ -2703,8 +2710,9 @@ void TCP::start(DATA &redis_data) {
             perror("Accept failed");
             continue;
             }
-            cout << "有新的客户端连接\n";
-            fcntl(server_socket,F_SETFL,O_NONBLOCK);
+              std::cout << "有新的客户端连接\n";
+              //fcntl(client_socket,F_SETFL,NONBLOCK);
+            
             ev.events = EPOLLIN | EPOLLET;  // 监听可读事件和边缘触发
             ev.data.fd = client_socket;
                 if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket, &ev) == -1) {
@@ -2719,18 +2727,13 @@ void TCP::start(DATA &redis_data) {
         if(bytes > 0)
         {
         buffer[bytes] = '\0';
-       cout<<buffer<<endl;
+       
         }
         else if (bytes == 0) {
                     // 客户端断开连接
-                    cout << "客户端已断开连接\n";
+                    std::cout << "客户端已断开连接\n";
                     close(client_socket);  
-        } else {
-              
-                if (errno == EWOULDBLOCK || errno == EAGAIN) {
-                  
-                    continue;
-                }
+                } 
         // string recived_message = string(buffer);
         string data(buffer,bytes);
             redisContext* cn = redis_data.data_create();
@@ -2738,56 +2741,57 @@ void TCP::start(DATA &redis_data) {
             //redisContext* c = data.data_create();
             LOGIN login(this);
             
-        //     if(data  =="login")
-        //     {
-        //         // int data_socket = new_socket(client_socket);
+            if(data  =="login")
+            {
+                cout<<"当前操作：登陆"<<endl;
+            
+                //在这里创建数据套接字，下面都用数据套接字传送消息
+                int data_socket = new_socket(client_socket);
                 
-        //     pool.enqueue([this, client_socket,&redis_data, &login](){  
-        //     if (login.login_user(client_socket, redis_data)) {
+            pool.enqueue([this, data_socket,&redis_data, &login](){  
+            if (login.login_user(data_socket, redis_data)) {
+            cout<<"用户已成功登陆"<<endl;
+            MSG msg;
+            int heart_socket = new_heartbeat_socket(data_socket);
+            addSocketPair(data_socket, heart_socket); 
+            std::thread(&TCP::handleHeartbeat, this, heart_socket, data_socket).detach();
+            this->make_choice(data_socket,msg);
             
-        //      msg;
-        //     int heart_socket = new_heartbeat_socket(data_socket);
-        //     addSocketPair(data_socket, heart_socket); 
-        //     thread(&TCP::handleHeartbeat, this, heart_socket, data_socket).detach();
-        //     this->make_choice(data_socket,msg);
-            
-        //    // stopHeartbeatMonitor();
-        //     remove_user_socket(find_user_id(data_socket));
-        //     remove_user(data_socket);
-        //      close(data_socket);
-        //      close(heart_socket);
-        //     }
-        //    // close(data_socket);
-        // });
-        //     }else if(data == "register")
-        //     {
-           
-        //     pool.enqueue([client_socket,&redis_data,&login](){
-        //     login.register_user(client_socket,redis_data);
-        //     });
-           
-        //     //close(data_socket);
-        //     }else if(data  == "deregister")
-        //     {
-        //         //int data_socket = new_socket(client_socket);
-        //         pool.enqueue([client_socket ,&redis_data,&login](){
-        //      login.deregister_user(client_socket,redis_data);
-        //     });
-        //     //close(data_socket);
-        //     }else if(data == "quit")
-        //     {
-        //         cout<<"当前操作：退出"<<endl;
-        //         close(client_socket);
-        //         break;
-        //     }else if (data == "") {
-        //     //std::cout << "Client disconnected\n";
-        //     cout << "No bytes received\n";
-        //     }
+           // stopHeartbeatMonitor();
+            remove_user_socket(find_user_id(data_socket));
+            remove_user(data_socket);
+             close(data_socket);//进入登陆后的选项  
+             close(heart_socket);
+            }
+           // close(data_socket);
+        });
+            }else if(data == "register")
+            {
+            int data_socket = new_socket(client_socket);
+            pool.enqueue([data_socket,&redis_data,&login](){
+            //cout << "Registering user..." << endl;
+            login.register_user(data_socket,redis_data);
+            });
+            //close(data_socket);
+            }else if(data  == "deregister")
+            {
+                int data_socket = new_socket(client_socket);
+                pool.enqueue([data_socket ,&redis_data,&login](){
+             login.deregister_user(data_socket,redis_data);
+            });
+            //close(data_socket);
+            }else if(data == "quit")
+            {
+                close(client_socket);
+                break;
+            }else if (data == "") {
+            //std::cout << "Client disconnected\n";
+            cout << "No bytes received\n";
+            }
 
-        //     }
+            }
    
     }
-            }}
     }
   
     close(epoll_fd); 
@@ -2800,33 +2804,35 @@ int TCP::generate_port() {
     uniform_int_distribution<> distr(PASV_PORT_MIN, PASV_PORT_MAX);
 
     while (true) {
-        int port = distr(gen);  
+        int port = distr(gen);  // 生成随机端口
         
+        // 检查端口是否可用
         int sock = socket(AF_INET, SOCK_STREAM, 0);
         if (sock < 0) {
             cerr << "创建套接字失败: " << strerror(errno) << endl;
-            return -1; 
+            return -1;  // 返回错误
         }
 
         // 设置 SO_REUSEADDR 以避免 TIME_WAIT 状态的影响
         int opt = 1;
         setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
+        // 尝试绑定端口
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = INADDR_ANY;
         addr.sin_port = htons(port);
 
         if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
-           
+            // 绑定成功，端口可用
             close(sock);
             return port;
         } else {
-           
+            // 绑定失败（端口可能被占用）
             close(sock);
             if (errno != EADDRINUSE) {
                 cerr << "绑定端口失败: " << strerror(errno) << endl;
-                return -1;  
+                return -1;  // 非"端口占用"错误，直接返回失败
             }
          
         }
@@ -2929,7 +2935,7 @@ void TCP:: checkHeartbeats() {
         for (auto it = client_last_heartbeat_.begin(); it != client_last_heartbeat_.end(); ) {
             auto duration = now - it->second;
             if (duration > std::chrono::minutes(1)) {
-                cout << "客户端 " << it->first << " 心跳超时，关闭连接" << endl;
+                std::cout << "客户端 " << it->first << " 心跳超时，关闭连接" << std::endl;
                 remove_user(it->first);
                 close(it->first);
                 // 清理用户数据
@@ -2939,28 +2945,26 @@ void TCP:: checkHeartbeats() {
             }
         }
     }
-    //接收心跳
 void TCP::handleHeartbeat(int heart_socket, int data_socket) {
     char buf[8];
     while (true) {
         ssize_t bytes = recv(heart_socket, buf, sizeof(buf), 0);
         if (bytes <= 0) {
-            unique_lock<mutex> lock(heartbeat_mutex_);
-        
+            std::unique_lock<std::mutex> lock(heartbeat_mutex_);
+            // 心跳连接异常，直接关闭两个套接字
             
             socket_pairs_.erase(data_socket);
             remove_user(data_socket);
-            cout << "正在关闭 data_socket=" << data_socket 
-          << ", heart_socket=" << heart_socket << endl;
+            std::cout << "正在关闭 data_socket=" << data_socket <<std::endl;
             close(data_socket);
-            close(heart_socket);
+            c
             break;
         }
         
         if (strncmp(buf, "ping", 4) == 0) {
             updateHeartbeat(data_socket);
-            //cout<<"收到心跳"<<endl;
-            //send(heart_socket, "PONG", 4, 0);
+            cout<<"收到心跳"<<endl;
+           
         }
     }
 }
@@ -3273,7 +3277,7 @@ void LOGIN::deregister_user(int data_socket,DATA &redis_data){
      close(data_socket);
  }
 
-//选择后续操作
+//登陆成功之后选择后续操作
 void TCP::make_choice(int data_socket,MSG &msg){
     DATA redis_data;
     redis_data.data_create();
@@ -3286,15 +3290,14 @@ void TCP::make_choice(int data_socket,MSG &msg){
     string type,to_id,from_id,message;
     recived_messages(redis_data,find_user_id(data_socket),data_socket,msg);
     cout<<"已发送离线消息"<<endl;
-    // while(1)
-    // {
-    //     if(!msg.rec_m(type,from_id,to_id,message,data_socket))
-    //     {
-    //         cout<<"客户端已断开"<<endl;
-    //         break;
-    //     }
-    msg.rec_m(type,from_id,to_id,message,data_socket);
-        if(type == "send_add_friends_request") 
+    while(1)
+    {
+        if(!msg.rec_m(type,from_id,to_id,message,data_socket))
+        {
+            cout<<"客户端已断开"<<endl;
+            break;
+        }
+        if(type == "send_add_friends_request")
         {
             cout<<"接收到命令：添加好友"<<endl;
             friends.send_add_request(*this,data_socket,to_id,from_id,message,redis_data,msg);
@@ -3309,7 +3312,7 @@ void TCP::make_choice(int data_socket,MSG &msg){
             // remove_user_socket(find_user_id(data_socket));
             // remove_user(data_socket);
            // close(data_socket);
-            // break;
+            break;
         }else if(type == "check_add_friends_request")
         {
             cout<<"接收到命令：查看该用户收到的好友申请"<<endl;
@@ -3338,7 +3341,7 @@ void TCP::make_choice(int data_socket,MSG &msg){
         }else if(type == "nothing")
         {
             //recived_message(redis_data,find_user_id(data_socket),data_socket);
-            //continue;
+            continue;
         }else if(type == "friend_open_block")
         {
             cout<<"接收到命令，打开聊天框"<<endl;
@@ -3461,11 +3464,11 @@ void TCP::make_choice(int data_socket,MSG &msg){
              group.accept_file_group(*this,data_socket,from_id,to_id,message,redis_data,msg);
               //recived_message(redis_data,find_user_id(data_socket),data_socket);
         }
-        // else if(type == "heart")
-        // {
-        //     cout<<"接收到客户端心跳监测"<<endl;
-        //      updateHeartbeat(data_socket);
-        // }
+        else if(type == "heart")
+        {
+            cout<<"接收到客户端心跳监测"<<endl;
+             updateHeartbeat(data_socket);
+        }
         else if(type == "quit_chat_group")
         {
             cout<<"收到命令：退出群聊天"<<endl;
@@ -3478,9 +3481,9 @@ void TCP::make_choice(int data_socket,MSG &msg){
         else{
             cout<<"接收到命令：未知命令"<<endl;
             cout<<"未知命令为"<<type<<endl;
-            // break;
+            break;
         }
-    //  }
+     }
  }
 
 void FRI::accept_file(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg) {

@@ -210,6 +210,12 @@ class TCP{
     void send_notice(string from_id,string to_id,string message,DATA &redis_data);
     int new_heartbeat_socket(int data_socket);
     void handleHeartbeat(int heart_socket, int data_socket) ;
+    void handleLogin(int client_socket, DATA &redis_data);
+    void processClientMessage(int client_socket, const std::string &message, DATA &redis_data) ;
+    void handleClientData(int client_socket, DATA &redis_data) ;
+    void handleNewConnection(int epoll_fd);
+    void handleDeregister(int client_socket, DATA &redis_data);
+    void handleRegister(int client_socket, DATA &redis_data);
 };
 
 class LOGIN{
