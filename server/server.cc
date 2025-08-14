@@ -410,7 +410,7 @@ bool DATA::is_friend(string to_id, string from_id) {
        cout<<"fromid is a"<< from_id<<"to_id is b"<<to_id<<endl;
         return false;
     }
-     if (reply->type == REDIS_REPLY_ERROR) {  /
+     if (reply->type == REDIS_REPLY_ERROR) {  
         cout << "Redis error: " << reply->str << endl;
         freeReplyObject(reply);
         return false;
@@ -2657,7 +2657,7 @@ TCP::TCP():pool(10) {
         exit(EXIT_FAILURE);
     }
     Threadpool pool(4);
-    std::cout << "Server listening on port " << PORT << "...\n";
+    cout << "Server listening on port " << PORT << "...\n";
  }
 
 //与客户端建立连接
@@ -2719,7 +2719,7 @@ void TCP::start(DATA &redis_data) {
         if(bytes > 0)
         {
         buffer[bytes] = '\0';
-       
+       cout<<buffer<<endl;
         }
         else if (bytes == 0) {
                     // 客户端断开连接
@@ -2738,58 +2738,56 @@ void TCP::start(DATA &redis_data) {
             //redisContext* c = data.data_create();
             LOGIN login(this);
             
-            if(data  =="login")
-            {
-                // int data_socket = new_socket(client_socket);
+        //     if(data  =="login")
+        //     {
+        //         // int data_socket = new_socket(client_socket);
                 
-            pool.enqueue([this, client_socket,&redis_data, &login](){  
-            if (login.login_user(client_socket, redis_data)) {
+        //     pool.enqueue([this, client_socket,&redis_data, &login](){  
+        //     if (login.login_user(client_socket, redis_data)) {
             
-            MSG msg;
-            int heart_socket = new_heartbeat_socket(data_socket);
-            addSocketPair(data_socket, heart_socket); 
-            thread(&TCP::handleHeartbeat, this, heart_socket, data_socket).detach();
-            this->make_choice(data_socket,msg);
+        //      msg;
+        //     int heart_socket = new_heartbeat_socket(data_socket);
+        //     addSocketPair(data_socket, heart_socket); 
+        //     thread(&TCP::handleHeartbeat, this, heart_socket, data_socket).detach();
+        //     this->make_choice(data_socket,msg);
             
-           // stopHeartbeatMonitor();
-            remove_user_socket(find_user_id(data_socket));
-            remove_user(data_socket);
-             close(data_socket);
-             close(heart_socket);
-            }
-           // close(data_socket);
-        });
-            }else if(data == "register")
-            {
+        //    // stopHeartbeatMonitor();
+        //     remove_user_socket(find_user_id(data_socket));
+        //     remove_user(data_socket);
+        //      close(data_socket);
+        //      close(heart_socket);
+        //     }
+        //    // close(data_socket);
+        // });
+        //     }else if(data == "register")
+        //     {
            
-           // int data_socket = new_socket(client_socket);
-            pool.enqueue([client_socket,&redis_data,&login](){
-            //cout << "Registering user..." << endl;
-            login.register_user(client_socket,redis_data);
-            });
+        //     pool.enqueue([client_socket,&redis_data,&login](){
+        //     login.register_user(client_socket,redis_data);
+        //     });
            
-            //close(data_socket);
-            }else if(data  == "deregister")
-            {
-                //int data_socket = new_socket(client_socket);
-                pool.enqueue([client_socket ,&redis_data,&login](){
-             login.deregister_user(client_socket,redis_data);
-            });
-            //close(data_socket);
-            }else if(data == "quit")
-            {
-                cout<<"当前操作：退出"<<endl;
-                close(client_socket);
-                break;
-            }else if (data == "") {
-            //std::cout << "Client disconnected\n";
-            cout << "No bytes received\n";
-            }
+        //     //close(data_socket);
+        //     }else if(data  == "deregister")
+        //     {
+        //         //int data_socket = new_socket(client_socket);
+        //         pool.enqueue([client_socket ,&redis_data,&login](){
+        //      login.deregister_user(client_socket,redis_data);
+        //     });
+        //     //close(data_socket);
+        //     }else if(data == "quit")
+        //     {
+        //         cout<<"当前操作：退出"<<endl;
+        //         close(client_socket);
+        //         break;
+        //     }else if (data == "") {
+        //     //std::cout << "Client disconnected\n";
+        //     cout << "No bytes received\n";
+        //     }
 
-            }
+        //     }
    
     }
-}
+            }}
     }
   
     close(epoll_fd); 
@@ -3296,7 +3294,7 @@ void TCP::make_choice(int data_socket,MSG &msg){
     //         break;
     //     }
     msg.rec_m(type,from_id,to_id,message,data_socket);
-        if(type == "send_add_friends_request")
+        if(type == "send_add_friends_request") 
         {
             cout<<"接收到命令：添加好友"<<endl;
             friends.send_add_request(*this,data_socket,to_id,from_id,message,redis_data,msg);
@@ -3340,7 +3338,7 @@ void TCP::make_choice(int data_socket,MSG &msg){
         }else if(type == "nothing")
         {
             //recived_message(redis_data,find_user_id(data_socket),data_socket);
-            continue;
+            //continue;
         }else if(type == "friend_open_block")
         {
             cout<<"接收到命令，打开聊天框"<<endl;
