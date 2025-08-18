@@ -1,11 +1,11 @@
-
+#ifndef SERVER_HPP
+#define SERVER_HPP
 #include <iostream>
 #include <string>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <cstring>
-#include <hiredis/hiredis.h>
 #include <fcntl.h> 
 #include <nlohmann/json.hpp>
 #include <iostream>
@@ -13,6 +13,9 @@
 #include <sys/epoll.h>
 #include <random>
 #include <fstream> 
+#include "redis.hpp"
+#include "fri.hpp"
+#include "gro.hpp"
 #include <sstream>
 #include <cstdlib>
 #include <iomanip>
@@ -42,107 +45,13 @@
 using namespace std;
 
 using json = nlohmann::json;
-std::mutex redis_mutex;
+extern std::mutex redis_mutex;  // 注意：这里只有声明
 extern std::mutex g_chat_pairs_mutex;
-std::mutex g_chat_pairs_mutex;
-unordered_map<string,string> chat_pairs;
-unordered_map<string,string> group_pairs;
-unordered_map<string, int> notice_user;
-  struct FriendRequest {
-    string from_id;
-    string message;
-    string status;
-};
-class DATA{
-    private:
-    bool checkTransactionResult(redisReply* reply);
-    static thread_local redisContext* c;
-    public:
+extern std::unordered_map<std::string, std::string> chat_pairs;
+extern std::unordered_map<std::string, std::string> group_pairs;
+extern std::unordered_map<std::string, int> notice_user;
 
-    //redisContext* c;
-    ~DATA() {
-        if (c) {
-            redisFree(c);
-            c = nullptr;
-        }
-    }
-   
-    redisContext* data_create();
-    bool check_username_duplicate(string username);//检查用户名是否重复
-    bool add_user(string user_id_str,string username,string password);//在数据库中添加用户数据
-    string get_username_by_id(string user_id);//通过用户id寻找对应的用户名，也可以用于检查用户是否存在
-    bool check_password(string password,string user_id);//检查密码与数据库中密码是否相同
-    bool delete_user(string user_id);//从数据库中删除某个用户数据
-    bool add_friends_request(string from_id,string to_id,string message,string status);//把发过来的好友申请存到好友申请表里面
-    string check_add_request(string to_id);//在好友申请列表里面寻找是否有好友请求
-    void add_friends(string to_id,string from_id);//添加好友
-    bool revise_status(string from_id,string to_id,string new_status);//修改好友列表里面的好友状态
-    void rdelete_friend(string to_id,string from_id);//删除好友
-    void see_all_friends(string from_id,vector<string>&buffer);//查询全部好友
-    bool is_friend(string to_id, string from_id);//检查两人是否为好友
-    bool check_dealed_request(string from_id,string to_id,string type);//检查好友申请是否已经被处理过
-    bool check_add_friend_request_duplicata(string to_id,string from_id);//检查to_id是否已经向from_id发送过申请
-    string check_add_request_and_revise(string to_id);
-   bool remove_friends_request(string from_id, string to_id);
-    //bool check_recived_recover(string from_id, string type);
-    bool check_recived_recover(string from_id, string type, string& data);
-    //把发送的消息存储到消息表中
-    bool add_message_log(string from_id,string to_id,string m);
-    bool process_and_mark_unread_files(string to_id, vector<pair<string, string>>& result);
-    //从消息列表中获取fromid和message
-    bool get_messages( const string& toid,vector<string>& fromids,vector<string>& messages);
-    bool get_messages_2( const string& toid,vector<string>& fromids,vector<string>& messages); 
-    bool add_message_log_unread(string from_id,string to_id,string m);
-    bool see_all_other_message(string from_id,string to_id,vector<string>& messages);
-    bool see_all_my_message(string from_id,string to_id,vector<string>& messages);
-    bool get_id_messages(const string& toid,const string& fromid, vector<string>& messages);
-    bool get_files(string from_id, string to_id,vector<string>& result);
-    bool revise_file_status(string from_id,string to_id,string filename);
-    bool get_unread_files(string to_id,vector<pair<string, string>>& result);
-    bool add_file(string from_id,string to_id, string filename);
-     bool generate_group(string from_id,string message,string group_id);//初始化群聊
-     bool add_group_member(string group_id,string to_id);//添加群成员
-     bool is_group_owner(string group_id, string user_id);//检查是不是群主
-     bool delete_group(string group_id);//注销群聊
-     vector<string> get_groups_by_user(string user_id);
-     string get_group_name(string group_id);
-     vector<string> get_all_members(string group_id);//查询群聊内全部成员
-     int get_admin_count(string group_id);//获取管理员数量
-     bool add_admins(string user_id, string group_id);//添加用户为管理员
-     //检查是不是管理员
-    bool is_admin(string user_id, string group_id);
-    bool is_in_group(string group_id,string user_id);//检查用户在不在群中
-    bool is_group_exists(string group_id);//检查群聊是否存在
-    bool remove_group_admin(string group_id,string member_id);//移除某人管理员身份
-    bool remove_group_member(string group_id, string member_id);//从群成员列表里面移除某人
-    vector<pair<string, string>> get_unread_applications(string group_id);
-    bool apply_to_group(string applicant_id, string group_id,string message);
-    vector<pair<string, string>> get_group_applications(string group_id);
-    bool check_group_status(string applicant_id, string group_id, string status); //检查群聊申请状态是否为status
-    bool revise_group_status(string applicant_id, string group_id, string status);//修改群聊申请状态
-    bool set_last_read_time(string user_id,string group_id,string timestamp);//设置最后已读时间
-    bool set_last_notified_time(const string& user_id, const string& group_id, const string& timestamp);//设置最后通知时间
-    vector<pair<string, string>> get_unread_messages(string user_id, string group_id) ;//获取未读信息
-    vector<pair<string, string>> get_unnotice_messages(string user_id, string group_id);//获取未通知的消息
-    bool add_group_message(string from_id, string message, string group_id, string timestamp);//添加消息
-    vector<tuple<string, string, string>> get_read_messages(string user_id, string group_id, int count);//获取已读历史消息
-    bool add_file_to_unread_list(string group_id,string from_id,string filename);//把文件添加到群所有成员未读列表
-    bool remove_unread_file(string group_id,string user_id,string file_value);//移除群里某成员的未读文件列表
-    vector<string> get_unread_file_group(string group_id,string user_id);//获取群里某成员的未读文件
-    bool add_file_group(string group_id,string from_id,string filename);//把群文件添加到redis
-    bool clear_group_files( string group_id);//删除群内的所有文件
-    bool clear_group_request(string group_id);//删除群内的所有请求
-    bool clear_group_messages(string group_id);//删除群聊的所有消息
-    bool delete_file_records(string user_id);//删除某人的所有文件（接收or发送
-    bool delete_message_logs(string user_id);//删除某人的所有消息
-    bool delete_friends(string user_id) ;//删除某人的所有好友
-    string get_unred_messages(string user_id, const std::string& delimiter); 
-    bool delete_notice_messages(string user_id);
-    bool add_unread_message(string user_id,string message);
-    bool remove_group_application(string applicant_id,string group_id);
-    bool check_group_apply(string group_id, string to_id);
-    //bool DATA::delete_user(user_id)
-};
+
 class MSG{
 
     public:
@@ -188,16 +97,10 @@ class TCP{
     int find_socket(const std::string& user_id);
     void remove_user(int data_socket);
     int new_transfer_socket(int client_socket);
-    //   void updateHeartbeat(int client_socket) {
-    //     std::unique_lock lock(heartbeat_mutex_);
-    //     client_last_heartbeat_[client_socket] = std::chrono::steady_clock::now();
-    // }
     void updateHeartbeat(int data_socket);
-    void addSocketPair(int data_socket, int heart_socket);
     void startHeartbeatMonitor();
     void stopHeartbeatMonitor();
     void checkHeartbeats();
-   // void notice_sender_thread(int notice_socket, atomic<bool>& running) ;
     int new_notice_socket(int data_socket);
 
     //登陆成功创建完noticesocket之后加入表
@@ -209,13 +112,7 @@ class TCP{
     //发送实时消息
     void send_notice(string from_id,string to_id,string message,DATA &redis_data);
     int new_heartbeat_socket(int data_socket);
-    void handleHeartbeat(int heart_socket, int data_socket) ;
-    void handleLogin(int client_socket, DATA &redis_data);
-    void processClientMessage(int client_socket, const std::string &message, DATA &redis_data) ;
-    void handleClientData(int client_socket, DATA &redis_data) ;
-    void handleNewConnection(int epoll_fd);
-    void handleDeregister(int client_socket, DATA &redis_data);
-    void handleRegister(int client_socket, DATA &redis_data);
+    
 };
 
 class LOGIN{
@@ -232,84 +129,10 @@ class LOGIN{
     void deregister_user(int data_socket,DATA &redis_data);
 
 };
-class FRI{
-     private:  
-    TCP* server;
-    
-    public:
-    FRI(TCP* server_instance) {
-        server = server_instance;
-    }
-     std::mutex pairs_mutex;
-    //添加好友
-   // void FRI::send_add_resquest(int data_socket,string to_id,string from_id,string message,DATA &redis_data)
-   void send_add_request(TCP &client,int data_socket,string to_id,string from_id,string message,DATA &redis_data,MSG &msg);
-   void check_add_friends_request(TCP &client,int data_socket,string from_id,DATA &redis_data,int &m,MSG &msg);//查看好友申请
-   void add_friend(TCP &client,int data_socket,string to_id,string from_id,DATA &redis_data,MSG &msg);//添加好友
-   void delete_friend(TCP &client,int data_socket,string to_id,string from_id,DATA& redis_data,MSG &msg);//删除好友
-   void see_all_friends(TCP &client,int data_socket,string from_id,DATA &redis_data,MSG &msg);//查询所有好友
-   void refuse_friend_request(TCP &client,int data_socket,string to_id,string from_id,DATA &redis_data,MSG &msg);//拒绝好友申请
-   void send_message(TCP &client,int data_socket,string from_id,string to_id,string message,DATA &redis_data,MSG &msg);//给好友发送消息
-   void open_block(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data,MSG &msg);
-    void quit_chat(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data,MSG &msg);
-    void shield_friend(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data,MSG &msg);//屏蔽好友
-     void cancel_shield_friend(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data,MSG &msg);//取消屏蔽
-     void new_message(TCP &client,int data_socket,string from_id,string to_id,DATA &redis_data,MSG &msg);
-     void send_file(TCP &client,int data_socket,string from_id, string to_id, string message, DATA &redis_data,MSG &msg);
-    
-    void accept_file(TCP &client,int data_socket,string from_id, string to_id, string message, DATA &redis_data,MSG &msg);
-    void is_friends(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    void store_chat_Pair(string first, string second) ;
-    bool check_chat(string a,string b);
-    void printChatPairsTable();
-    bool delete_chat_pair(string first);
-   
-
-    
-};
-class GRO{
-    private:  
-    TCP* server;
-    public:
-    GRO(TCP* server_instance) {
-        server = server_instance;
-    }
-    //生成随机群号
-    int generateNumber();
-    //创建群
-    void generate_group(TCP &client,int data_socket,string from_id,string to_id,string message,DATA &redis_data,MSG &msg);
-    //解散群
-    void delete_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    //查看该用户加入的所有群聊
-    void see_all_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    //查看某群聊的全部成员
-    void see_all_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    //添加为管理
-    void add_admin(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    void open_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    //退出群聊
-    void quit_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    void delete_admin(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    void add_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    void send_add_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    void see_add_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    void add_group_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    void refuse_group_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    void receive_group_message(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    void add_group_message(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    void open_group_block(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    void send_file_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    void accept_file_group(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    void delete_member(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-    bool check_chat(string a,string b); 
-    bool delete_chat_pair(string first); 
-    void printChatPairsTable();
-    void store_chat_Pair(string first, string second);
-   void quit_chat(TCP &client,int data_socket, string from_id, string to_id, string message, DATA& redis_data,MSG &msg);
-};
 
 string delete_line(const std::string& message);
 string delete_space(const std::string& message);
 string getCurrentTimestamp();
 void parse_json_message(const char* data, size_t len, string& type, string& from_id, string& to_id, string& message);
 bool is_valid_json(const string& json_str);
+#endif

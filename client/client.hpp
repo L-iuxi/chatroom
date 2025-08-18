@@ -1,3 +1,5 @@
+#ifndef CLIENT_HPP
+#define CLIENT_HPP
 #include <iostream>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -15,6 +17,8 @@
 #include <condition_variable>
 
 #include <functional>
+#include "cfri.hpp"
+#include "cgro.hpp"
 
 
 
@@ -28,13 +32,13 @@
 #define PRINT_RED(msg) cout<<RED<<msg<<RESET
 using namespace std;
 using json = nlohmann::json;
-using AckCallback = std::function<void(const string&)>;
-std::atomic<bool> chat_active{true};//控制好友聊天
-std::atomic<bool> group_active{true};  //控制群聊天
-std::atomic<bool> heartbeat_received(true);
-std::condition_variable cv;
-bool is_paused = false;
-std::mutex mtx;   
+
+extern std::atomic<bool> chat_active;
+extern std::atomic<bool> group_active;
+extern std::atomic<bool> heartbeat_received;
+extern std::condition_variable cv;
+extern bool is_paused;  // 或者改为 std::atomic<bool>
+extern std::mutex mtx; 
 struct FriendRequest {
     string from_id;
     string message;
@@ -42,12 +46,12 @@ struct FriendRequest {
 };
 class TCP{
     private:
-    int client_socket;
     char buffer[BUFFER_SIZE];
     
     public:
      int heart_socket;
     int notice_socket;
+     int client_socket;
     int transfer_socket;
     int data_socket;
     std::atomic<bool> notice_thread_running_{false};
@@ -115,57 +119,5 @@ class LOGIN{
         return username;
     }
 };
-class GRO{
-    private:
-    string group_id;
-    std::atomic<bool> is_transfer{false}; 
-    public:
-    //创建群聊
-    void generate_group(TCP &client,LOGIN &login); 
-    void delete_group(TCP &client, LOGIN &login);
-    void see_all_group(TCP &client, LOGIN &login);
-    void see_all_members(TCP &client,LOGIN &login,string group_id);
-    void add_admin(TCP &client,LOGIN &login,string group_id);
-    void quit_group(TCP &client,LOGIN &login,string group_id,int &m);
-    void manage_group(TCP &client,LOGIN &login,string group_id);
-    void delete_admin(TCP &client,LOGIN &login,string group_id);
-    void manage_admin(TCP &client,LOGIN &login,string group_id);
-    void  open_group_owner(TCP &client,LOGIN &login,int &m,string group_id);
-    void  open_group_admin(TCP &client,LOGIN &login,int &m,string group_id);
-    void  open_group_member(TCP &client,LOGIN &login,int &m,string group_id);
-    void manage_member(TCP &client,LOGIN &login,string group_id);
-    void send_add_group(TCP &client, LOGIN &login) ;
-    void see_add_group(TCP &client,LOGIN &login,string group_id);
-    void open_group_block(TCP &client,LOGIN &login,string group_id);
-    void receive_group_message(TCP& client,string from_id,string group_id);
-    void send_message_group(TCP &client,string from_id,string group_id);
-    void send_file_group(TCP &client,LOGIN &login,string group_id);
-    void accept_file_group(TCP &client, LOGIN &login,string group_id);
-};
-class FRI{
-    private:
-    std::atomic<bool> is_transfer{false}; 
-    public:
-    void make_choice(TCP &client,LOGIN &login);
-    void add_friend(TCP &client,string from_user_id);
-    void check_message(TCP &client,LOGIN &login);
-    void check_add_friends_request(TCP &client,LOGIN &login);
-    void delete_friend(TCP& client,string from_id);
-    void see_all_friends(TCP &client,string from_id);
-    //void send_message(TCP &client,LOGIN &login);
-    void open_block(TCP &client,LOGIN &login,string to_id);
-    void shidld_friend(TCP &client,LOGIN &login);
-    void cancel_shidld_friend(TCP &client,LOGIN &login);
-   void receive_log(TCP& client,string from_id,string to_id);
-    void send_message_no(TCP &client,string from_id,string to_id);
-    void send_file_to_friends(TCP &client, LOGIN &login,string to_id);
-    void manage_friends(TCP &client,LOGIN &login);
-    void accept_file(TCP &client, LOGIN &login,string to_id);
-    void manage_group(GRO &group,TCP &client,LOGIN &login);
-  void open_group(GRO &group,TCP &client,LOGIN &login);
-  void choose_command(TCP &client, LOGIN &login);
-
-    //int client_socket,string from_user_id
-    // void make_choice(TCP &client,LOGIN &login);
-};
 string hexdump(const char* data, size_t len);
+#endif
