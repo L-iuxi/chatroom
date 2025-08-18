@@ -15,19 +15,32 @@ include_directories(
     ${PROJECT_SOURCE_DIR}/client
     ${PROJECT_SOURCE_DIR}/server
     ${PROJECT_SOURCE_DIR}/other
-    /path/to/hiredis/include  # 如果hiredis安装在这个路径下
+    /path/to/hiredis/include 
 )
 
 # 添加可执行文件
 add_executable(Client
     client/client.cc
     client/client.hpp
+    client/cfri.cpp
+    client/cfri.hpp
+    client/clientmain.cpp
+    client/cgro.cpp
+    client/cgro.hpp
     other/ui.hpp
+    other/ui.cpp
 )
 
 add_executable(Server
-    server/server.cc
+    server/server.cpp
     server/server.hpp
+    server/servermain.cc
+    server/redis.hpp
+    server/redis.cpp
+    server/fri.cpp
+    server/fri.hpp
+    server/gro.cpp
+    server/gro.hpp
     other/threadpool.hpp
 )
 
